@@ -219,7 +219,7 @@ public class MCEFResourceManager {
         }
     }
 
-    private void downloadFile(String urlString, File outputFile, MCEFProgressTracker percentCompleteConsumer) {
+    private void downloadFile(String urlString, File outputFile, MCEFProgressTracker percentCompleteConsumer) throws IOException {
         try {
             MCEF.INSTANCE.getLogger().debug("Downloading '{}' to '{}'", urlString, outputFile.getCanonicalPath());
         } catch (IOException e) {
@@ -258,7 +258,7 @@ public class MCEFResourceManager {
         } catch (MalformedURLException e) {
             throw new RuntimeException("Invalid URL format for " + urlString, e);
         } catch (IOException e) {
-            throw new RuntimeException("Error connecting to " + urlString, e);
+            throw new IOException("Error connecting to " + urlString, e);
         }
     }
 
