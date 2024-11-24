@@ -253,7 +253,7 @@ public class MCEFResourceManager {
                     percentCompleteConsumer.setProgress(percentComplete);
                 }
             } catch (IOException e) {
-                throw new RuntimeException("Error writing to file from input stream", e);
+                throw new IOException("Error writing to file from input stream", e);
             }
         } catch (MalformedURLException e) {
             throw new RuntimeException("Invalid URL format for " + urlString, e);
