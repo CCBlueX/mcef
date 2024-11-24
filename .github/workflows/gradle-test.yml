@@ -1,11 +1,11 @@
-name: Gradle Package
+name: Gradle Test
 
 on:
   release:
     types: [created]
 
 jobs:
-  build:
+  test:
 
     runs-on: ubuntu-latest
     permissions:
@@ -17,23 +17,15 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setting up JDK 17
+      - name: Setting up JDK 21
         uses: actions/setup-java@v3
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Build with Gradle
         uses: gradle/gradle-build-action@v2
         env:
           CI: true
         with:
-          arguments: genSources build
-
-      - name: Publish to GitHub Packages
-        uses: gradle/gradle-build-action@v2
-        with:
-          arguments: publish
-        env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          arguments: genSources test
