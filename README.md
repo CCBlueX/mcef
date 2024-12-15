@@ -7,9 +7,9 @@ A fork of the MCEF mod and library for adding the Chromium web browser into Mine
 
 MCEF is based on java-cef (Java Chromium Embedded Framework), which is based on CEF (Chromium Embedded Framework), which is based on Chromium. It was originally created by montoyo. It was rewritten by the CinemaMod Group.
 
-MCEF contains a downloader system for downloading the java-cef & CEF binaries required by the Chromium browser. This requires a connection to https://mcef-download.cinemamod.com.
+MCEF contains a downloader system for downloading the java-cef & CEF binaries required by the Chromium browser. This requires a connection to https://api.liquidbounce.net.
 
-Current Chromium version: `116.0.5845.190`
+Current Chromium version: `CEF 122.1.10+gc902316+chromium-122.0.6261.112`
 
 ## Supported Platforms
 - Windows 10/11 (x86_64, arm64)*
@@ -31,7 +31,7 @@ repositories {
 ```
 ```
 dependencies {
-    modImplementation 'com.github.CCBlueX:mcef:1.1.5-1.21.1'
+    modImplementation 'com.github.CCBlueX:mcef:1.3.0-1.21.1'
 }
 ```
 
