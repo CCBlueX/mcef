@@ -113,7 +113,11 @@ public class MCEFResourceManager {
             try {
                 var tarGzArchive = new File(commitDirectory, platform.getNormalizedName() + ".tar.gz");
                 if (tarGzArchive.exists()) {
-                    FileUtils.forceDelete(tarGzArchive);
+                    try {
+                        FileUtils.forceDelete(tarGzArchive);
+                    } catch (Exception e) {
+                        MCEF.INSTANCE.getLogger().warn("Failed to delete existing .tar.gz file", e);
+                    }
                 }
 
                 // Download JCEF from file hosting
@@ -230,7 +234,8 @@ public class MCEFResourceManager {
         }
     }
 
-    private void downloadFile(String urlString, File outputFile, MCEFProgressTracker percentCompleteConsumer) throws IOException {
+    private void downloadFile(String urlString, File outputFile, MCEFProgressTracker percentCompleteConsumer)
+            throws IOException {
         var client = new OkHttpClient();
         var request = new Request.Builder()
                 .url(urlString)
