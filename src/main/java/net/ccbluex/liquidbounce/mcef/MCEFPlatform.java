@@ -118,19 +118,16 @@ public enum MCEFPlatform {
     }
 
     private static String getWindowsBuildNumber() {
-        try {
-            var cmdArray = new String[]{"powershell.exe", "-Command", "\"[System.Environment]::OSVersion.Version.Build\""};
-            var process = Runtime.getRuntime().exec(cmdArray);
-
-            try (var source = Okio.buffer(Okio.source(process.getInputStream()))) {
-                var result = source.readUtf8().trim();
-                if (result.isEmpty()) {
-                    result = getWmicBuildNumber();
-                }
-
-                process.waitFor(); // Wait for process to complete
-                return result;
+        var cmdArray = new String[]{"powershell.exe", "-Command", "\"[System.Environment]::OSVersion.Version.Build\""};
+        try (var process = Runtime.getRuntime().exec(cmdArray);
+             var source = Okio.buffer(Okio.source(process.getInputStream()))) {
+            var result = source.readUtf8().trim();
+            if (result.isEmpty()) {
+                result = getWmicBuildNumber();
             }
+
+            process.waitFor(); // Wait for process to complete
+            return result;
         } catch (IOException | InterruptedException e) {
             MCEF.INSTANCE.getLogger().error("Failed to execute command to get Windows build number", e);
             return null;
@@ -139,21 +136,19 @@ public enum MCEFPlatform {
 
 
     private static String getWmicBuildNumber() {
-        try {
-            var wmicCmdArray = new String[]{"wmic", "os", "get", "BuildNumber", "/value"};
-            var process = Runtime.getRuntime().exec(wmicCmdArray);
+        var wmicCmdArray = new String[]{"wmic", "os", "get", "BuildNumber", "/value"};
 
-            try (var source = Okio.buffer(Okio.source(process.getInputStream()))) {
-                var result = source.readUtf8().trim();
-                if (result.isEmpty()) {
-                    result = null;
-                } else {
-                    result = result.substring("BuildNumber=".length());
-                }
-
-                process.waitFor(); // Wait for process to complete
-                return result;
+        try (var process = Runtime.getRuntime().exec(wmicCmdArray);
+             var source = Okio.buffer(Okio.source(process.getInputStream()))) {
+            var result = source.readUtf8().trim();
+            if (result.isEmpty()) {
+                result = null;
+            } else {
+                result = result.substring("BuildNumber=".length());
             }
+
+            process.waitFor(); // Wait for process to complete
+            return result;
         } catch (IOException | InterruptedException e) {
             MCEF.INSTANCE.getLogger().error("Failed to execute wmic command", e);
             return null;
