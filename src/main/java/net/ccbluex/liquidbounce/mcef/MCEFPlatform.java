@@ -22,11 +22,9 @@
 package net.ccbluex.liquidbounce.mcef;
 
 import net.minecraft.util.Util;
-import org.apache.commons.lang3.StringUtils;
+import okio.Okio;
 
 import java.util.Locale;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.IOException;
 
 public enum MCEFPlatform {
@@ -124,16 +122,14 @@ public enum MCEFPlatform {
             var cmdArray = new String[]{"powershell.exe", "-Command", "\"[System.Environment]::OSVersion.Version.Build\""};
             var process = Runtime.getRuntime().exec(cmdArray);
 
-            try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                var line = reader.readLine();
-                if (line == null || StringUtils.isBlank(line)) {
-                    line = getWmicBuildNumber();
-                } else {
-                    line = line.trim();
+            try (var source = Okio.buffer(Okio.source(process.getInputStream()))) {
+                var result = source.readUtf8().trim();
+                if (result.isEmpty()) {
+                    result = getWmicBuildNumber();
                 }
 
                 process.waitFor(); // Wait for process to complete
-                return line;
+                return result;
             }
         } catch (IOException | InterruptedException e) {
             MCEF.INSTANCE.getLogger().error("Failed to execute command to get Windows build number", e);
@@ -144,20 +140,28 @@ public enum MCEFPlatform {
 
     private static String getWmicBuildNumber() {
         try {
-            var wmicCmdArray = new String[]{"wmic", "os", "get", "BuildNumber"};
+            var wmicCmdArray = new String[]{"wmic", "os", "get", "BuildNumber", "/value"};
             var process = Runtime.getRuntime().exec(wmicCmdArray);
 
-            try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                return reader.lines()
-                        .skip(1) // Skip header line
-                        .filter(line -> !line.trim().isEmpty())
-                        .findFirst()
-                        .orElse(null);
+            try (var source = Okio.buffer(Okio.source(process.getInputStream()))) {
+                var result = source.readUtf8().trim();
+                if (result.isEmpty()) {
+                    result = null;
+                } else {
+                    result = result.substring("BuildNumber=".length());
+                }
+
+                process.waitFor(); // Wait for process to complete
+                return result;
             }
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException e) {
             MCEF.INSTANCE.getLogger().error("Failed to execute wmic command", e);
             return null;
         }
+    }
+
+    public static void main(String[] args) {
+        System.out.println(getWmicBuildNumber());
     }
 
     private static boolean checkMacOSCompatibility(String version) {
