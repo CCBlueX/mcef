@@ -160,9 +160,6 @@ public enum MCEFPlatform {
         }
     }
 
-    public static void main(String[] args) {
-        System.out.println(getWmicBuildNumber());
-    }
 
     private static boolean checkMacOSCompatibility(String version) {
         if (version == null) {
