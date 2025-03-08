@@ -22,12 +22,12 @@
 package net.ccbluex.liquidbounce.mcef;
 
 import net.minecraft.util.Util;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Locale;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.IOException;
-import java.util.Objects;
 
 public enum MCEFPlatform {
 
@@ -121,26 +121,19 @@ public enum MCEFPlatform {
 
     private static String getWindowsBuildNumber() {
         try {
-            var cmdArray = new String[]{"cmd", "/c", "ver"};
+            var cmdArray = new String[]{"powershell.exe", "-Command", "\"[System.Environment]::OSVersion.Version.Build\""};
             var process = Runtime.getRuntime().exec(cmdArray);
 
             try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                var result = reader.lines()
-                        .filter(line -> line.contains("[Version"))
-                        .map(line -> {
-                            try {
-                                return line.split("\\[Version ")[1].replace("]", "").split("\\.")[2];
-                            } catch (ArrayIndexOutOfBoundsException e) {
-                                MCEF.INSTANCE.getLogger().error("Failed to parse Windows version string: {}", line, e);
-                                return null;
-                            }
-                        })
-                        .filter(Objects::nonNull)
-                        .findFirst()
-                        .orElseGet(MCEFPlatform::getWmicBuildNumber);
+                var line = reader.readLine();
+                if (line == null || StringUtils.isBlank(line)) {
+                    line = getWmicBuildNumber();
+                } else {
+                    line = line.trim();
+                }
 
                 process.waitFor(); // Wait for process to complete
-                return result;
+                return line;
             }
         } catch (IOException | InterruptedException e) {
             MCEF.INSTANCE.getLogger().error("Failed to execute command to get Windows build number", e);
