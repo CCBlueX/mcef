@@ -27,5 +27,7 @@ public class MCEFBrowserSettings extends CefBrowserSettings {
     public MCEFBrowserSettings(int frameRate) {
         super();
         this.windowless_frame_rate = frameRate;
+//        this.external_begin_frame_enabled = true;
+        this.shared_texture_enabled = true;
     }
 }

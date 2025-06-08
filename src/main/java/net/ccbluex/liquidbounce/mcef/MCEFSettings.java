@@ -35,12 +35,13 @@ public class MCEFSettings {
             // No SSL
             "http://nossl.api.liquidbounce.net/api/v3/resource"
     );
-    private String userAgent = null;
-    private List<String> cefSwitches = Arrays.asList(
+    private String userAgent = null;    private List<String> cefSwitches = Arrays.asList(
             "--autoplay-policy=no-user-gesture-required",
             "--disable-web-security",
             "--enable-widevine-cdm",
-            "--off-screen-rendering-enabled"
+            "--off-screen-rendering-enabled",
+            "--shared-texture-enabled"
+//            "--external-begin-frame-enabled"
     );
     private File cacheDirectory = null;
     private File librariesDirectory = null;
@@ -102,3 +103,4 @@ public class MCEFSettings {
     }
 
 }
+

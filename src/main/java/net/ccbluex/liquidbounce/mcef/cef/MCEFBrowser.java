@@ -32,6 +32,7 @@ import org.cef.callback.CefDragData;
 import org.cef.event.CefKeyEvent;
 import org.cef.event.CefMouseEvent;
 import org.cef.event.CefMouseWheelEvent;
+import org.cef.handler.CefAcceleratedPaintInfo;
 import org.cef.misc.CefCursorType;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.system.MemoryUtil;
@@ -85,6 +86,7 @@ public class MCEFBrowser extends CefBrowserOsr {
     private int mouseButton;
 
     private final boolean isMacOs = MCEFPlatform.getPlatform().isMacOS();
+    private final boolean isWindows = MCEFPlatform.getPlatform().isWindows();
 
     public MCEFBrowser(MCEFClient client, String url, boolean transparent, int frameRate) {
         super(client.getHandle(), url, transparent, null, new MCEFBrowserSettings(frameRate));
@@ -134,7 +136,7 @@ public class MCEFBrowser extends CefBrowserOsr {
         if (dirtyRects.length == 0) {
             return;
         }
-
+        
         if (!popup) {
             if (lastWidth != width || lastHeight != height) {
                 lastWidth = width;
@@ -205,6 +207,28 @@ public class MCEFBrowser extends CefBrowserOsr {
 
             popupDrawn = true;
         }
+    }
+
+    @Override
+    public void onAcceleratedPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects, CefAcceleratedPaintInfo info) {
+        // Handle accelerated paint events for hardware-accelerated rendering
+        if (dirtyRects.length == 0) {
+            return;
+        }
+
+        System.out.println("On accelerated paint called with " + dirtyRects.length + " dirty rects, popup: " + popup);
+
+        // Get the texture dimensions from the paint info
+        int width = info.width;
+        int height = info.height;
+
+        if (lastWidth != width || lastHeight != height) {
+            lastWidth = width;
+            lastHeight = height;
+        }
+
+        // Use the renderer's accelerated paint method
+        renderer.onAcceleratedPaint(info, width, height);
     }
 
     public void resize(int width, int height) {
