@@ -130,7 +130,7 @@ public class MCEFRenderer {
             return;
         }
 
-        var estimatedSize = (long) width * height * 4;
+        var estimatedSize = (long) width * height * 4 * 2;
 
         System.out.println("OpenGL estimated size: " + estimatedSize);
         glImportMemoryWin32HandleEXT(memoryObjectID[0],
