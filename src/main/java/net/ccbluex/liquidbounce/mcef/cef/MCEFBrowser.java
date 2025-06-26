@@ -211,14 +211,6 @@ public class MCEFBrowser extends CefBrowserOsr {
 
     @Override
     public void onAcceleratedPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects, CefAcceleratedPaintInfo info) {
-        // Handle accelerated paint events for hardware-accelerated rendering
-        if (dirtyRects.length == 0) {
-            return;
-        }
-
-        System.out.println("On accelerated paint called with " + dirtyRects.length + " dirty rects, popup: " + popup);
-
-        // Get the texture dimensions from the paint info
         int width = info.width;
         int height = info.height;
 
@@ -227,7 +219,6 @@ public class MCEFBrowser extends CefBrowserOsr {
             lastHeight = height;
         }
 
-        // Use the renderer's accelerated paint method
         renderer.onAcceleratedPaint(info, width, height);
     }
 
