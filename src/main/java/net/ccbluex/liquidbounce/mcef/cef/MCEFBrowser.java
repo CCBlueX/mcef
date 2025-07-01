@@ -370,14 +370,14 @@ public class MCEFBrowser extends CefBrowserOsr {
 
     // Closing
     public void close() {
-        renderer.cleanup();
+        renderer.close();
         cursorChangeListener.onCursorChange(0);
         super.close(true);
     }
 
     @Override
     protected void finalize() throws Throwable {
-        RenderSystem.recordRenderCall(renderer::cleanup);
+        RenderSystem.recordRenderCall(renderer::close);
         super.finalize();
     }
 
