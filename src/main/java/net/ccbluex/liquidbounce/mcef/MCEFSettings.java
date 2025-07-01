@@ -35,13 +35,12 @@ public class MCEFSettings {
             // No SSL
             "http://nossl.api.liquidbounce.net/api/v3/resource"
     );
-    private String userAgent = null;    private List<String> cefSwitches = Arrays.asList(
+    private String userAgent = null;
+    private List<String> cefSwitches = Arrays.asList(
             "--autoplay-policy=no-user-gesture-required",
             "--disable-web-security",
             "--enable-widevine-cdm",
-            "--off-screen-rendering-enabled",
-            "--shared-texture-enabled"
-//            "--external-begin-frame-enabled"
+            "--off-screen-rendering-enabled"
     );
     private File cacheDirectory = null;
     private File librariesDirectory = null;
@@ -80,6 +79,25 @@ public class MCEFSettings {
 
     public void removeCefSwitches(String... switches) {
         cefSwitches.removeAll(Arrays.asList(switches));
+    }
+
+    /**
+     * Enables accelerated painting in CEF, allowing it to provide
+     * GPU texture handles directly to {@link net.ccbluex.liquidbounce.mcef.cef.MCEFRenderer}
+     * for improved rendering performance, instead of using byte buffers.
+     */
+    public void enableAcceleratedPainting() {
+        if (!cefSwitches.contains("--enable-accelerated-painting")) {
+            cefSwitches.add("--enable-accelerated-painting");
+        }
+    }
+
+    /**
+     * Disables accelerated painting in CEF, reverting to the default behavior
+     * of using byte buffers for rendering instead of GPU texture handles.
+     */
+    public void disableAcceleratedPainting() {
+        cefSwitches.remove("--enable-accelerated-painting");
     }
 
     public void setCefSwitches(List<String> cefSwitches) {
