@@ -88,8 +88,8 @@ public class MCEFBrowser extends CefBrowserOsr {
     private final boolean isMacOs = MCEFPlatform.getPlatform().isMacOS();
     private final boolean isWindows = MCEFPlatform.getPlatform().isWindows();
 
-    public MCEFBrowser(MCEFClient client, String url, boolean transparent, int frameRate) {
-        super(client.getHandle(), url, transparent, null, new MCEFBrowserSettings(frameRate));
+    public MCEFBrowser(MCEFClient client, String url, boolean transparent, MCEFBrowserSettings browserSettings) {
+        super(client.getHandle(), url, transparent, null, browserSettings);
         renderer = new MCEFRenderer(transparent);
         cursorChangeListener = (cefCursorID) -> setCursor(CefCursorType.fromId(cefCursorID));
 

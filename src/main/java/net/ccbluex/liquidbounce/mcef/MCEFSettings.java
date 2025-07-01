@@ -81,25 +81,6 @@ public class MCEFSettings {
         cefSwitches.removeAll(Arrays.asList(switches));
     }
 
-    /**
-     * Enables accelerated painting in CEF, allowing it to provide
-     * GPU texture handles directly to {@link net.ccbluex.liquidbounce.mcef.cef.MCEFRenderer}
-     * for improved rendering performance, instead of using byte buffers.
-     */
-    public void enableAcceleratedPainting() {
-        if (!cefSwitches.contains("--enable-accelerated-painting")) {
-            cefSwitches.add("--enable-accelerated-painting");
-        }
-    }
-
-    /**
-     * Disables accelerated painting in CEF, reverting to the default behavior
-     * of using byte buffers for rendering instead of GPU texture handles.
-     */
-    public void disableAcceleratedPainting() {
-        cefSwitches.remove("--enable-accelerated-painting");
-    }
-
     public void setCefSwitches(List<String> cefSwitches) {
         this.cefSwitches = cefSwitches;
     }
