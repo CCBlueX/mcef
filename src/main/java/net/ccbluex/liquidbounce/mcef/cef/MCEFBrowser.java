@@ -207,6 +207,7 @@ public class MCEFBrowser extends CefBrowserOsr {
 
             popupDrawn = true;
         }
+        super.onPaint(browser, popup, dirtyRects, buffer, width, height);
     }
 
     @Override
@@ -220,6 +221,7 @@ public class MCEFBrowser extends CefBrowserOsr {
         }
 
         renderer.onAcceleratedPaint(info, width, height);
+        super.onAcceleratedPaint(browser, popup, dirtyRects, info);
     }
 
     public void resize(int width, int height) {
