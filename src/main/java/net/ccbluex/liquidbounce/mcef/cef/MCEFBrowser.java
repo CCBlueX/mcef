@@ -331,6 +331,10 @@ public class MCEFBrowser extends CefBrowserOsr {
         sendMouseWheelEvent(event);
     }
 
+    public void clear() {
+        invalidate();
+    }
+
     // Drag & drop
     @Override
     public boolean startDragging(CefBrowser browser, CefDragData dragData, int mask, int x, int y) {
