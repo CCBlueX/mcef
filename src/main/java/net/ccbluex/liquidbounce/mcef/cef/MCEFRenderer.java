@@ -29,6 +29,7 @@ import org.lwjgl.opengl.GL11;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 
+import static org.lwjgl.opengl.EXTTextureStorage.GL_BGRA8_EXT;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL12.*;
 import static org.lwjgl.opengl.EXTMemoryObject.*;
@@ -42,6 +43,9 @@ public class MCEFRenderer implements Closeable {
     private final int[] memoryObjectID = new int[1];
     private boolean unpainted = true;
     private boolean isAccelerated = false;
+
+    private static final int FORMAT_BGRA = 0;
+    private static final int FORMAT_RGBA = 1;
 
     protected MCEFRenderer(boolean transparent) {
         this.transparent = transparent;
@@ -154,6 +158,15 @@ public class MCEFRenderer implements Closeable {
             return;
         }
 
+        int colorFormat;
+        if (info.format == FORMAT_BGRA) {
+            colorFormat = GL_BGRA8_EXT;
+        } else if (info.format == FORMAT_RGBA) {
+            colorFormat = GL_RGBA8;
+        } else {
+            colorFormat = GL_RGBA8;
+        }
+
         var estimatedSize = (long) width * height * 4 * 2; // 4 bytes per pixel, 2 planes for BGRA
         glImportMemoryWin32HandleEXT(memoryObjectID[0],
                 estimatedSize,
@@ -170,12 +183,13 @@ public class MCEFRenderer implements Closeable {
         glTexStorageMem2DEXT(
                 GL_TEXTURE_2D,      // Target (not texture ID)
                 1,                  // Mip levels
-                GL_RGBA8,           // Internal format
+                colorFormat,           // Internal format
                 width,
                 height,
                 memoryObjectID[0],
                 0                   // Offset
         );
+        glFinish();
 
         RenderSystem.bindTexture(0);
 
