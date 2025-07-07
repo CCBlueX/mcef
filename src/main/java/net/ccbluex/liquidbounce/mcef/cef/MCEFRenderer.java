@@ -143,6 +143,7 @@ public class MCEFRenderer implements Closeable {
 
         if (sharedTextureID[0] != 0) {
             RenderSystem.deleteTexture(sharedTextureID[0]);
+            sharedTextureID[0] = 0;
         }
 
         sharedTextureID[0] = GL11.glGenTextures();

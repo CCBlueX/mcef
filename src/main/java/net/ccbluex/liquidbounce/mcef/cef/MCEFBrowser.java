@@ -23,6 +23,7 @@ package net.ccbluex.liquidbounce.mcef.cef;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+import net.ccbluex.liquidbounce.mcef.MCEF;
 import net.ccbluex.liquidbounce.mcef.MCEFPlatform;
 import net.ccbluex.liquidbounce.mcef.glfw.MCEFGlfwCursorHelper;
 import net.ccbluex.liquidbounce.mcef.listeners.MCEFCursorChangeListener;
@@ -212,8 +213,14 @@ public class MCEFBrowser extends CefBrowserOsr {
 
     @Override
     public void onAcceleratedPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects, CefAcceleratedPaintInfo info) {
-        int width = info.width;
-        int height = info.height;
+        if (dirtyRects.length == 0) {
+            MCEF.INSTANCE.LOGGER.warn("Dirty Rects empty on accelerated paint");
+            return;
+        }
+
+        var rect = dirtyRects[0];
+        int width = rect.width;
+        int height = rect.height;
 
         if (lastWidth != width || lastHeight != height) {
             lastWidth = width;
