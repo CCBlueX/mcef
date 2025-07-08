@@ -171,6 +171,7 @@ public class MCEFRenderer implements Closeable {
                 memoryObject,
                 0                   // Offset
         );
+        glFinish();
 
         if (sharedTextureID[0] != 0) {
             RenderSystem.deleteTexture(sharedTextureID[0]);
