@@ -219,6 +219,12 @@ public class MCEFBrowser extends CefBrowserOsr {
             return;
         }
 
+        // refuse 1x1 rectangles
+        if (info.width <= 1 || info.height <= 1 ||
+                dirtyRects[0].width <= 1 || dirtyRects[0].height <= 1) {
+            return;
+        }
+
         var width = info.width;
         var height = info.height;
 
