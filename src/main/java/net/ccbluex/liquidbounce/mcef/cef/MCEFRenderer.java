@@ -29,7 +29,6 @@ import org.lwjgl.opengl.GL11;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 
-import static org.lwjgl.opengl.EXTTextureStorage.GL_BGRA8_EXT;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL12.*;
 import static org.lwjgl.opengl.EXTMemoryObject.*;
@@ -40,12 +39,9 @@ public class MCEFRenderer implements Closeable {
     private final boolean transparent;
     private final int[] textureID = new int[1];
     private final int[] sharedTextureID = new int[1];
-    private final int[] memoryObjectID = new int[1];
+    private boolean isBGRA = false;
     private boolean unpainted = true;
     private boolean isAccelerated = false;
-
-    private static final int FORMAT_BGRA = 0;
-    private static final int FORMAT_RGBA = 1;
 
     protected MCEFRenderer(boolean transparent) {
         this.transparent = transparent;
@@ -64,7 +60,6 @@ public class MCEFRenderer implements Closeable {
         RenderSystem.bindTexture(0);
 
         sharedTextureID[0] = 0;
-        memoryObjectID[0] = 0;
     }
 
     /**
@@ -119,7 +114,7 @@ public class MCEFRenderer implements Closeable {
      * @return true if the texture format is BGRA, false otherwise
      */
     public boolean isBGRA() {
-        return isAccelerated;
+        return isBGRA;
     }
 
     /**
@@ -139,62 +134,56 @@ public class MCEFRenderer implements Closeable {
             RenderSystem.enableBlend();
         }
 
-        var d3d11Handle = info.shared_texture_handle;
-        if (memoryObjectID[0] != 0) {
-            glDeleteMemoryObjectsEXT(memoryObjectID[0]);
-            memoryObjectID[0] = 0;
-        }
+        // Create a new texture that we can copy the shared texture into. Unfortunately, textures are immutable,
+        // so we have to create a new one
+        var sharedTexture = glGenTextures();
 
-        if (sharedTextureID[0] != 0) {
-            RenderSystem.deleteTexture(sharedTextureID[0]);
-            sharedTextureID[0] = 0;
-        }
-
-        sharedTextureID[0] = GL11.glGenTextures();
-        memoryObjectID[0] = glCreateMemoryObjectsEXT();
-
-        if (memoryObjectID[0] == 0) {
+        // Create the memory object handle
+        var memoryObject = glCreateMemoryObjectsEXT();
+        if (memoryObject == 0) {
             MCEF.INSTANCE.LOGGER.error("Failed to create memory object for shared texture.");
+            glDeleteTextures(sharedTexture);
             return;
         }
 
-        int colorFormat;
-        if (info.format == FORMAT_BGRA) {
-            colorFormat = GL_BGRA8_EXT;
-        } else if (info.format == FORMAT_RGBA) {
-            colorFormat = GL_RGBA8;
-        } else {
-            colorFormat = GL_RGBA8;
-        }
+        // The size of the texture we get from CEF. The CEF format is CEF_COLOR_TYPE_BGRA_8888
+        // It has 4 bytes per pixel. The mem object requires this to be multiplied with 2
+        var size = (long) width * height * 8; // 8 bytes per pixel
 
-        var estimatedSize = (long) width * height * 4 * 2; // 4 bytes per pixel, 2 planes for BGRA
-        glImportMemoryWin32HandleEXT(memoryObjectID[0],
-                estimatedSize,
+        // Cef uses the GL_HANDLE_TYPE_D3D11_IMAGE_EXT handle for their shared texture
+        // Import the shared texture to the memory object
+        glImportMemoryWin32HandleEXT(memoryObject,
+                size,
                 GL_HANDLE_TYPE_D3D11_IMAGE_EXT,
-                d3d11Handle
+                info.shared_texture_handle
         );
 
-        RenderSystem.bindTexture(sharedTextureID[0]);
-        RenderSystem.texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        RenderSystem.texParameter(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        RenderSystem.texParameter(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        RenderSystem.texParameter(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        RenderSystem.bindTexture(sharedTexture);
 
+        // Allocate immutable storage for the texture for the data from the memory object
+        // Use GL_RGBA8 since it is 4 bytes
         glTexStorageMem2DEXT(
                 GL_TEXTURE_2D,      // Target (not texture ID)
                 1,                  // Mip levels
-                colorFormat,           // Internal format
+                GL_RGBA8,           // Internal format
                 width,
                 height,
-                memoryObjectID[0],
+                memoryObject,
                 0                   // Offset
         );
-        glFinish();
 
-        RenderSystem.bindTexture(0);
+        if (sharedTextureID[0] != 0) {
+            RenderSystem.deleteTexture(sharedTextureID[0]);
+        }
 
+        glDeleteMemoryObjectsEXT(memoryObject);
+
+        sharedTextureID[0] = sharedTexture;
         isAccelerated = true;
         unpainted = false;
+        isBGRA = true;
+
+        RenderSystem.bindTexture(0);
     }
 
     /**
@@ -223,6 +212,7 @@ public class MCEFRenderer implements Closeable {
 
         GL11.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
                 GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
+        isBGRA = false;
         unpainted = false;
     }
 
@@ -241,6 +231,7 @@ public class MCEFRenderer implements Closeable {
 
         GL11.glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA,
                 GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
+        isBGRA = false;
         unpainted = false;
     }
 
@@ -250,11 +241,6 @@ public class MCEFRenderer implements Closeable {
     @Override
     public void close() {
         RenderSystem.assertOnRenderThread();
-
-        if (memoryObjectID[0] != 0) {
-            glDeleteMemoryObjectsEXT(memoryObjectID[0]);
-            memoryObjectID[0] = 0;
-        }
 
         if (textureID[0] != 0) {
             RenderSystem.deleteTexture(textureID[0]);

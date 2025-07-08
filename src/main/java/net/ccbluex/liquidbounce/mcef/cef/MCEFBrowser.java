@@ -212,22 +212,28 @@ public class MCEFBrowser extends CefBrowserOsr {
     }
 
     @Override
-    public void onAcceleratedPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects, CefAcceleratedPaintInfo info) {
+    public void onAcceleratedPaint(CefBrowser browser, boolean popup, Rectangle[] dirtyRects,
+                                   CefAcceleratedPaintInfo info) {
+        // nothing to update
         if (dirtyRects.length == 0) {
-            MCEF.INSTANCE.LOGGER.warn("Dirty Rects empty on accelerated paint");
             return;
         }
 
-        var rect = dirtyRects[0];
-        int width = rect.width;
-        int height = rect.height;
+        var width = info.width;
+        var height = info.height;
 
-        if (lastWidth != width || lastHeight != height) {
+        if (lastWidth != width ||
+                lastHeight != height) {
             lastWidth = width;
             lastHeight = height;
         }
 
-        renderer.onAcceleratedPaint(info, width, height);
+        if (!popup) {
+            renderer.onAcceleratedPaint(info, width, height);
+        } else {
+            MCEF.INSTANCE.LOGGER.warn("Accelerated paint for popups is not supported in MCEF.");
+        }
+
         super.onAcceleratedPaint(browser, popup, dirtyRects, info);
     }
 
