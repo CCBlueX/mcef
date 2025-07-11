@@ -228,10 +228,16 @@ public class MCEFBrowser extends CefBrowserOsr {
         var width = info.width;
         var height = info.height;
 
-        if (lastWidth != width ||
-                lastHeight != height) {
-            lastWidth = width;
-            lastHeight = height;
+        if (lastWidth != width || lastHeight != height) {
+            var rect = dirtyRects[0];
+
+            if (rect.width == width && rect.height == height && rect.x == 0 && rect.y == 0) {
+                lastWidth = width;
+                lastHeight = height;
+            } else {
+                // Likely an outdated paint-call
+                return;
+            }
         }
 
         if (!popup) {

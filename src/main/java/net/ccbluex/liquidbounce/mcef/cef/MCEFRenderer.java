@@ -148,7 +148,7 @@ public class MCEFRenderer implements Closeable {
 
         // The size of the texture we get from CEF. The CEF format is CEF_COLOR_TYPE_BGRA_8888
         // It has 4 bytes per pixel. The mem object requires this to be multiplied with 2
-        var size = (long) width * height * 8; // 8 bytes per pixel
+        var size = (long) width * height * 4 * 2;
 
         // Cef uses the GL_HANDLE_TYPE_D3D11_IMAGE_EXT handle for their shared texture
         // Import the shared texture to the memory object
