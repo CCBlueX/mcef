@@ -29,10 +29,10 @@ import okhttp3.Request;
 import okio.Okio;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 
 import java.io.*;
 import java.util.function.Supplier;
+import java.util.zip.GZIPInputStream;
 
 public class FileUtils {
 
@@ -122,9 +122,7 @@ public class FileUtils {
         outputDirectory.mkdirs();
 
         byte[] buffer = new byte[8192];
-        try (TarArchiveInputStream tarInput = new TarArchiveInputStream(
-                new GzipCompressorInputStream(new FileInputStream(tarGzFile)))) {
-
+        try (TarArchiveInputStream tarInput = new TarArchiveInputStream(new GZIPInputStream(new FileInputStream(tarGzFile)))) {
             long totalBytesRead = 0;
             float fileSizeEstimate = tarGzFile.length() * 2.6158204f; // Initial estimate for progress
             
