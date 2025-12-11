@@ -26,6 +26,7 @@ import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.*;
 import net.ccbluex.liquidbounce.mcef.MCEF;
+import net.minecraft.client.gui.render.TextureSetup;
 import net.minecraft.resources.Identifier;
 import org.cef.handler.CefAcceleratedPaintInfo;
 import org.jetbrains.annotations.Nullable;
@@ -120,8 +121,24 @@ public class MCEFRenderer implements Closeable {
      * @return GpuSampler
      */
     public GpuSampler getSampler() {
-        return RenderSystem.getSamplerCache()
-                .getClampToEdge(FilterMode.LINEAR, false);
+        if (isAccelerated) {
+            return directSharedTexture.getSampler();
+        } else {
+            return directTexture.getSampler();
+        }
+    }
+
+    /**
+     * Returns the texture setup for the renderer.
+     * If accelerated rendering is enabled, it returns the shared texture setup.
+     * @return TextureSetup
+     */
+    public @Nullable TextureSetup getTextureSetup() {
+        if (isAccelerated) {
+            return directSharedTexture.getTextureSetup();
+        } else {
+            return directTexture.getTextureSetup();
+        }
     }
 
     /**
