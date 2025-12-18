@@ -24,7 +24,10 @@ package net.ccbluex.liquidbounce.mcef.cef;
 import com.mojang.blaze3d.opengl.GlStateManager;
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.*;
+import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.blaze3d.textures.TextureFormat;
 import net.ccbluex.liquidbounce.mcef.MCEF;
 import net.ccbluex.liquidbounce.mcef.utils.EglUtils;
 import net.minecraft.client.gui.render.TextureSetup;
@@ -299,11 +302,12 @@ public class MCEFRenderer implements Closeable {
         );
         glFinish();
 
-        closeTexture(this.sharedTexture);
+        var previousSharedTexture = this.sharedTexture;
         glDeleteMemoryObjectsEXT(memoryObject);
 
         directSharedTexture.setDirectTextureId(sharedTextureId, width, height);
         this.sharedTexture = directSharedTexture.getTexture();
+        closeTexture(previousSharedTexture);
         this.textureWidth = width;
         this.textureHeight = height;
 
@@ -453,10 +457,11 @@ public class MCEFRenderer implements Closeable {
                 return;
             }
 
-            closeTexture(this.sharedTexture);
+            var previousSharedTexture = this.sharedTexture;
 
             directSharedTexture.setDirectTextureId(sharedTextureId, width, height);
             this.sharedTexture = directSharedTexture.getTexture();
+            closeTexture(previousSharedTexture);
             this.textureWidth = width;
             this.textureHeight = height;
 
