@@ -26,6 +26,7 @@ import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.*;
 import net.ccbluex.liquidbounce.mcef.MCEF;
+import net.ccbluex.liquidbounce.mcef.utils.EglUtils;
 import net.minecraft.client.gui.render.TextureSetup;
 import net.minecraft.resources.Identifier;
 import org.cef.handler.CefAcceleratedPaintInfo;
@@ -33,15 +34,11 @@ import org.cef.handler.CefAcceleratedPaintInfoLinux;
 import org.cef.handler.CefAcceleratedPaintInfoWin;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
-import org.lwjgl.egl.EGL;
 import org.lwjgl.egl.EGL14;
-import org.lwjgl.egl.EGLCapabilities;
 import org.lwjgl.egl.EXTImageDMABufImport;
 import org.lwjgl.egl.KHRImageBase;
 import org.lwjgl.opengl.EXTEGLImageStorage;
 import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.JNI;
-import org.lwjgl.system.MemoryUtil;
 
 import java.io.Closeable;
 import java.nio.ByteBuffer;
@@ -59,9 +56,6 @@ import static org.lwjgl.opengl.GL12.GL_UNSIGNED_INT_8_8_8_8_REV;
 
 @NullMarked
 public class MCEFRenderer implements Closeable {
-
-    private static @Nullable EGLCapabilities eglCapabilities = null;
-    private static long eglDisplay = EGL14.EGL_NO_DISPLAY;
 
     private final boolean transparent;
     private @Nullable GpuTexture texture = null;
@@ -329,14 +323,10 @@ public class MCEFRenderer implements Closeable {
             return;
         }
 
-        var display = getEglDisplay();
+        var display = EglUtils.getDisplay();
         if (display == EGL14.EGL_NO_DISPLAY) {
             MCEF.INSTANCE.LOGGER.error("EGL display is not available for dmabuf import.");
             return;
-        }
-
-        if (eglCapabilities == null || EGL.getCapabilities() == null) {
-            ensureEglCapabilities(display);
         }
 
         if (EGL14.eglGetCurrentContext() == EGL14.EGL_NO_CONTEXT) {
@@ -364,6 +354,7 @@ public class MCEFRenderer implements Closeable {
             return;
         }
 
+        var eglCapabilities = EglUtils.getCapabilities();
         var useModifiers = eglCapabilities.EGL_EXT_image_dma_buf_import_modifiers;
         var modifier = info.modifier;
 
@@ -425,7 +416,7 @@ public class MCEFRenderer implements Closeable {
                     Arrays.toString(attribSnapshot)
             );
 
-            var eglImage = eglCreateImageKHR(
+            var eglImage = EglUtils.eglCreateImageKHR(
                     display,
                     EGL14.EGL_NO_CONTEXT,
                     EXTImageDMABufImport.EGL_LINUX_DMA_BUF_EXT,
@@ -475,64 +466,6 @@ public class MCEFRenderer implements Closeable {
 
             GlStateManager._bindTexture(0);
         }
-    }
-
-    private static long getEglDisplay() {
-        if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
-            return eglDisplay;
-        }
-
-        long display = EGL14.eglGetCurrentDisplay();
-        if (display == EGL14.EGL_NO_DISPLAY) {
-            display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
-        }
-
-        if (display == EGL14.EGL_NO_DISPLAY) {
-            return EGL14.EGL_NO_DISPLAY;
-        }
-
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            IntBuffer major = stack.mallocInt(1);
-            IntBuffer minor = stack.mallocInt(1);
-            if (!EGL14.eglInitialize(display, major, minor)) {
-                MCEF.INSTANCE.LOGGER.error("eglInitialize failed for EGL display.");
-                return EGL14.EGL_NO_DISPLAY;
-            }
-        }
-
-        eglDisplay = display;
-        return eglDisplay;
-    }
-
-
-    private static void ensureEglCapabilities(long display) {
-        try {
-            EGL.getCapabilities();
-        } catch (IllegalStateException ignored) {
-            EGL.create();
-        }
-
-        EGLCapabilities clientCaps = EGL.getCapabilities();
-        if (clientCaps.eglCreateImageKHR == 0L || clientCaps.eglDestroyImageKHR == 0L) {
-            // Some drivers only report client extensions after eglInitialize on a display.
-            EGL.destroy();
-            EGL.create();
-        }
-
-        eglCapabilities = EGL.createDisplayCapabilities(display);
-    }
-
-    /**
-     * A copy of [{@link KHRImageBase#eglCreateImageKHR}] to bypass argument checks.
-     */
-    private static long eglCreateImageKHR(long display, long context, int target, long buffer, IntBuffer attribs) {
-        long functionAddress = EGL.getCapabilities().eglCreateImageKHR;
-        if (functionAddress == 0L) {
-            MCEF.INSTANCE.LOGGER.error("eglCreateImageKHR is not available on this EGL implementation.");
-            return 0L;
-        }
-
-        return JNI.callPPPPP(display, context, target, buffer, MemoryUtil.memAddress(attribs), functionAddress);
     }
 
     /**

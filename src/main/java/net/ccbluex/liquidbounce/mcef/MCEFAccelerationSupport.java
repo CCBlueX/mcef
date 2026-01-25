@@ -23,12 +23,11 @@ package net.ccbluex.liquidbounce.mcef;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import java.util.Locale;
-import org.lwjgl.egl.EGL;
+
+import net.ccbluex.liquidbounce.mcef.utils.EglUtils;
 import org.lwjgl.egl.EGL14;
-import org.lwjgl.egl.EGLCapabilities;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.system.MemoryStack;
 
 /**
  * Check if the current platform supports GPU acceleration for CEF.
@@ -60,6 +59,10 @@ public final class MCEFAccelerationSupport {
             default -> Support.UNSUPPORTED;
         };
 
+        if (!cachedSupport.isSupported()) {
+            MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
+        }
+
         return cachedSupport;
     }
 
@@ -81,7 +84,6 @@ public final class MCEFAccelerationSupport {
             var isSupportedGpu = isNvidiaGpu || isAmdGpu(vendorString, rendererString);
             if (!isSupportedGpu) {
                 MCEF.INSTANCE.LOGGER.warn("GPU acceleration only supported on NVIDIA and AMD GPUs");
-                MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
                 return Support.UNSUPPORTED;
             }
 
@@ -89,14 +91,12 @@ public final class MCEFAccelerationSupport {
                 || !capabilities.GL_EXT_memory_object_win32
                 || capabilities.glImportMemoryWin32HandleEXT == 0L) {
                 MCEF.INSTANCE.LOGGER.warn("Required OpenGL extensions for GPU acceleration not supported");
-                MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
                 return Support.UNSUPPORTED;
             }
 
             return new Support(true, !isNvidiaGpu);
         } catch (Exception e) {
             MCEF.INSTANCE.LOGGER.warn("Failed to check GPU acceleration support: {}", e.getMessage());
-            MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
             return Support.UNSUPPORTED;
         }
     }
@@ -105,21 +105,18 @@ public final class MCEFAccelerationSupport {
         try {
             RenderSystem.assertOnRenderThread();
 
-            var eglDisplay = EGL14.eglGetCurrentDisplay();
-            if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
-                eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
-            }
-
+            var eglDisplay = EglUtils.getDisplay();
             if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
                 MCEF.INSTANCE.LOGGER.warn("EGL display is not available for accelerated paint");
-                MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
                 return Support.UNSUPPORTED;
             }
 
-            runEglBootstrap(eglDisplay);
+            if (EGL14.eglGetCurrentContext() == EGL14.EGL_NO_CONTEXT) {
+                MCEF.INSTANCE.LOGGER.warn("No EGL context available for accelerated paint. Install WayGL mod.");
+                return Support.UNSUPPORTED;
+            }
 
-            var eglCapabilities = EGL.createDisplayCapabilities(eglDisplay);
-
+            var eglCapabilities = EglUtils.getCapabilities();
             var hasDmabufImport = eglCapabilities.EGL_EXT_image_dma_buf_import;
             var hasImageBase = eglCapabilities.EGL_KHR_image_base;
 
@@ -128,44 +125,15 @@ public final class MCEFAccelerationSupport {
                 hasDmabufImport,
                 hasImageBase
             );
-
             if (!hasDmabufImport || !hasImageBase) {
                 MCEF.INSTANCE.LOGGER.warn("Required EGL extensions for GPU acceleration not supported");
-                MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
                 return Support.UNSUPPORTED;
             }
 
-            return new Support(true, true);
+            return new Support(true, false);
         } catch (Exception e) {
             MCEF.INSTANCE.LOGGER.warn("Failed to check Linux GPU acceleration support: {}", e.getMessage());
-            MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
             return Support.UNSUPPORTED;
-        }
-    }
-
-    private static void runEglBootstrap(long eglDisplay) {
-        var capabilitiesSource = "existing";
-        try {
-            EGL.getCapabilities();
-        } catch (IllegalStateException ignored) {
-            EGL.create();
-        }
-
-        try (MemoryStack stack = MemoryStack.stackPush()) {
-            var major = stack.mallocInt(1);
-            var minor = stack.mallocInt(1);
-            if (!EGL14.eglInitialize(eglDisplay, major, minor)) {
-                MCEF.INSTANCE.LOGGER.warn("eglInitialize failed for accelerated paint");
-                MCEF.INSTANCE.LOGGER.info("Falling back to software rendering for browser");
-                throw new IllegalStateException("eglInitialize failed");
-            }
-
-            MCEF.INSTANCE.LOGGER.info(
-                "EGL bootstrap: capabilities={}, eglInitialize=success, version={}.{}",
-                capabilitiesSource,
-                major.get(0),
-                minor.get(0)
-            );
         }
     }
 
