@@ -105,6 +105,13 @@ public final class MCEFAccelerationSupport {
         try {
             RenderSystem.assertOnRenderThread();
 
+            // Check if WEBKIT_DISABLE_DMABUF_RENDERER=1 is set.
+            var webkitDisableDmabufRenderer = System.getenv("WEBKIT_DISABLE_DMABUF_RENDERER");
+            if (webkitDisableDmabufRenderer != null && webkitDisableDmabufRenderer.equals("1")) {
+                MCEF.INSTANCE.LOGGER.warn("WEBKIT_DISABLE_DMABUF_RENDERER=1 is set.");
+                return Support.UNSUPPORTED;
+            }
+
             var eglDisplay = EglUtils.getDisplay();
             if (eglDisplay == EGL14.EGL_NO_DISPLAY) {
                 MCEF.INSTANCE.LOGGER.warn("EGL display is not available for accelerated paint");
