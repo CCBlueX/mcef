@@ -144,6 +144,21 @@ publishing {
             from components.java
         }
     }
+
+    repositories {
+        maven {
+            name = "ccbluex-maven"
+            def isSnapshot = version.toString().endsWith("-SNAPSHOT")
+            url = isSnapshot ? uri("https://maven.ccbluex.net/snapshots") : uri("https://maven.ccbluex.net/releases")
+            credentials {
+                username = System.getenv("MAVEN_TOKEN_NAME")
+                password = System.getenv("MAVEN_TOKEN_SECRET")
+            }
+            authentication {
+                basic(BasicAuthentication)
+            }
+        }
+    }
 }
 
-group = 'com.github.CCBlueX'
+group = 'net.ccbluex'
