@@ -21,23 +21,22 @@
 package net.ccbluex.liquidbounce.mcef.cef;
 
 import com.mojang.blaze3d.opengl.GlTexture;
+import com.mojang.blaze3d.opengl.GlTextureView;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.gui.render.TextureSetup;
 import net.minecraft.client.renderer.texture.AbstractTexture;
+import org.jspecify.annotations.NullMarked;
 
 /**
  * A more efficient texture implementation that directly wraps an existing OpenGL texture ID.
  * This bypasses the normal texture creation pipeline and allows us to use an existing texture
  * directly with Minecraft's rendering system.
  */
+@NullMarked
 public class MCEFDirectTexture extends AbstractTexture {
-    private int width;
-    private int height;
-    private TextureSetup textureSetup;
-
     public MCEFDirectTexture() {
         this.sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR, false);
     }
@@ -51,48 +50,52 @@ public class MCEFDirectTexture extends AbstractTexture {
      * @param height The height of the texture
      */
     public void setDirectTextureId(int textureId, int width, int height) {
-        // If we already have a texture and it's not the same ID, don't close it
-        // (we don't own these textures, MCEFRenderer does)
-        
-        if (textureId > 0) {
-            // Create a custom GlTexture that wraps the existing ID
-            this.texture = new DirectGlTexture(textureId, width, height);
-            if (this.textureView != null) {
-                this.textureView.close();
-            }
-            this.textureView = RenderSystem.getDevice().createTextureView(this.texture);
-            this.textureSetup = TextureSetup.singleTexture(this.getTextureView(), this.getSampler());
-            this.width = width;
-            this.height = height;
-        } else {
-            this.texture = null;
-            this.textureView = null;
+        this.setDirectTextureId(textureId, width, height, false);
+    }
+
+    public void setOwnedDirectTextureId(int textureId, int width, int height) {
+        this.setDirectTextureId(textureId, width, height, true);
+    }
+
+    private void setDirectTextureId(int textureId, int width, int height, boolean ownsTexture) {
+        this.close();
+
+        if (textureId <= 0) {
+            return;
         }
-    }
-    
-    public int getWidth() {
-        return width;
-    }
-    
-    public int getHeight() {
-        return height;
+
+        this.texture = new DirectGlTexture(textureId, width, height, ownsTexture);
     }
     
     @Override
     public void close() {
-        // Don't close the texture - we don't own it
-        this.texture = null;
-
         if (this.textureView != null) {
             this.textureView.close();
             this.textureView = null;
         }
 
-        this.textureSetup = TextureSetup.noTexture();
+        if (this.texture != null) {
+            this.texture.close();
+        }
+        this.texture = null;
+    }
+
+    @Override
+    public GlTexture getTexture() {
+        return (GlTexture) super.getTexture();
+    }
+
+    @Override
+    public GlTextureView getTextureView() {
+        if (this.textureView == null) {
+            this.textureView = RenderSystem.getDevice().createTextureView(this.getTexture());
+        }
+
+        return (GlTextureView) this.textureView;
     }
 
     public TextureSetup getTextureSetup() {
-        return this.textureSetup;
+        return this.texture == null ? TextureSetup.noTexture() : TextureSetup.singleTexture(this.getTextureView(), this.sampler);
     }
 
     /**
@@ -100,35 +103,28 @@ public class MCEFDirectTexture extends AbstractTexture {
      * without managing its lifecycle.
      */
     static class DirectGlTexture extends GlTexture {
-        private final int width;
-        private final int height;
-        
-        protected DirectGlTexture(int textureId, int width, int height) {
-            // Call parent constructor with dummy values, then override
+        private final boolean ownsTexture;
+
+        protected DirectGlTexture(int textureId, int width, int height, boolean ownsTexture) {
             super(
                 GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST,
-                "MCEF Direct Texture", TextureFormat.RGBA8, width, height, 1, 1, textureId
+                "MCEF Direct Texture " + textureId + " (" + width + "x" + height + ")",
+                TextureFormat.RGBA8, width, height, 1, 1, textureId
             );
-            this.width = width;
-            this.height = height;
-            // Mark as not closed
-            this.closed = false;
+            this.ownsTexture = ownsTexture;
         }
         
         @Override
         public void close() {
-            // Don't actually delete the texture - we don't own it
-            this.closed = true;
-        }
-        
-        @Override
-        public int getWidth(int mipLevel) {
-            return width >> mipLevel;
-        }
-        
-        @Override
-        public int getHeight(int mipLevel) {
-            return height >> mipLevel;
+            if (this.closed) {
+                return;
+            }
+
+            if (this.ownsTexture) {
+                super.close();
+            } else {
+                this.closed = true;
+            }
         }
     }
 }

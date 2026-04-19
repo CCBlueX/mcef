@@ -412,16 +412,14 @@ public class MCEFRenderer implements Closeable {
                 return;
             }
 
-            var previousSharedTexture = this.sharedTexture;
             var previousDirectSharedTexture = this.directSharedTexture;
             var directSharedTexture = new MCEFDirectTexture();
-            directSharedTexture.setDirectTextureId(sharedTextureId, width, height);
+            directSharedTexture.setOwnedDirectTextureId(sharedTextureId, width, height);
             this.directSharedTexture = directSharedTexture;
             this.sharedTexture = directSharedTexture.getTexture();
             if (previousDirectSharedTexture != null) {
                 previousDirectSharedTexture.close();
             }
-            closeTexture(previousSharedTexture);
             this.textureWidth = width;
             this.textureHeight = height;
 
@@ -525,7 +523,7 @@ public class MCEFRenderer implements Closeable {
         }
 
         if (this.texture != null) {
-            closeTexture(this.texture);
+            this.texture.close();
             this.texture = null;
         }
 
@@ -537,7 +535,6 @@ public class MCEFRenderer implements Closeable {
         }
 
         if (this.sharedTexture != null) {
-            closeTexture(this.sharedTexture);
             this.sharedTexture = null;
         }
 
@@ -599,7 +596,7 @@ public class MCEFRenderer implements Closeable {
         GlStateManager._bindTexture(0);
 
         var directTexture = new MCEFDirectTexture();
-        directTexture.setDirectTextureId(sharedTextureId, width, height);
+        directTexture.setOwnedDirectTextureId(sharedTextureId, width, height);
         return new WindowsSharedTextureEntry(width, height, directTexture);
     }
 
@@ -646,19 +643,6 @@ public class MCEFRenderer implements Closeable {
         windowsSharedTextureCache.clear();
     }
 
-    private static void closeTexture(@Nullable GpuTexture texture) {
-        switch (texture) {
-            case null -> {}
-            case MCEFDirectTexture.DirectGlTexture t -> {
-                t.close();
-                glDeleteTextures(t.glId());
-            }
-            case GlTexture t -> t.close();
-            default -> throw new IllegalStateException("Unexpected texture: %s (type=%s)"
-                    .formatted(texture, texture.getClass().getSimpleName()));
-        }
-    }
-
     private record WindowsSharedTextureEntry(
             int width,
             int height,
@@ -671,9 +655,7 @@ public class MCEFRenderer implements Closeable {
 
         @Override
         public void close() {
-            var texture = this.directTexture.getTexture();
             this.directTexture.close();
-            closeTexture(texture);
         }
     }
 
