@@ -28,6 +28,7 @@ import com.mojang.blaze3d.textures.GpuSampler;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import com.mojang.blaze3d.textures.TextureFormat;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import net.ccbluex.liquidbounce.mcef.MCEF;
 import net.ccbluex.liquidbounce.mcef.utils.EglUtils;
 import net.minecraft.client.gui.render.TextureSetup;
@@ -59,6 +60,8 @@ import static org.lwjgl.opengl.GL12.GL_UNSIGNED_INT_8_8_8_8_REV;
 
 @NullMarked
 public class MCEFRenderer implements Closeable {
+    private static final int WINDOWS_SHARED_TEXTURE_CACHE_LIMIT = 4;
+    private static final long WINDOWS_SHARED_TEXTURE_IMPORT_SIZE = 0L;
 
     private final boolean transparent;
     private @Nullable GpuTexture texture = null;
@@ -71,6 +74,8 @@ public class MCEFRenderer implements Closeable {
     private @Nullable MCEFDirectTexture directTexture;
     private @Nullable MCEFDirectTexture directSharedTexture;
     private boolean textureRegistered = false;
+    private final Long2ObjectLinkedOpenHashMap<WindowsSharedTextureEntry> windowsSharedTextureCache =
+            new Long2ObjectLinkedOpenHashMap<>(WINDOWS_SHARED_TEXTURE_CACHE_LIMIT);
 
     private boolean isBGRA = false;
     private boolean unpainted = true;
@@ -91,7 +96,6 @@ public class MCEFRenderer implements Closeable {
         directTexture = new MCEFDirectTexture();
         mc.getTextureManager().register(identifier, directTexture);
         textureRegistered = true;
-        directSharedTexture = new MCEFDirectTexture();
     }
 
     /**
@@ -227,11 +231,6 @@ public class MCEFRenderer implements Closeable {
     protected void onAcceleratedPaint(CefAcceleratedPaintInfo info, int width, int height) {
         RenderSystem.assertOnRenderThread();
 
-        var directSharedTexture = this.directSharedTexture;
-        if (directSharedTexture == null) {
-            return;
-        }
-
         switch (info) {
             case CefAcceleratedPaintInfoWin winInfo -> onAcceleratedPaintWindows(winInfo, width, height);
             case CefAcceleratedPaintInfoLinux linuxInfo -> onAcceleratedPaintLinux(linuxInfo, width, height);
@@ -253,69 +252,25 @@ public class MCEFRenderer implements Closeable {
             GlStateManager._enableBlend();
         }
 
-        // Create a new texture that we can copy the shared texture into. Unfortunately, textures are immutable,
-        // so we have to create a new one
-        var sharedTextureId = glGenTextures();
+        var cachedTexture = windowsSharedTextureCache.getAndMoveToLast(info.shared_texture_handle);
+        if (cachedTexture != null) {
+            if (cachedTexture.matches(width, height)) {
+                activateSharedTexture(cachedTexture.directTexture, width, height, true);
+                return;
+            }
 
-        // Create the memory object handle
-        var memoryObject = glCreateMemoryObjectsEXT();
-        if (memoryObject == 0) {
-            MCEF.INSTANCE.LOGGER.error("Failed to create memory object for shared texture.");
-            glDeleteTextures(sharedTextureId);
+            windowsSharedTextureCache.remove(info.shared_texture_handle);
+            cachedTexture.close();
+        }
+
+        var importedTexture = importWindowsSharedTexture(info.shared_texture_handle, width, height);
+        if (importedTexture == null) {
             return;
         }
 
-        // The size of the texture we get from CEF. The CEF format is CEF_COLOR_TYPE_BGRA_8888
-        // It has 4 bytes per pixel. The mem object requires this to be multiplied with 2
-        var size = (long) width * height * 4 * 2;
-
-        // Cef uses the GL_HANDLE_TYPE_D3D11_IMAGE_EXT handle for their shared texture
-        // Import the shared texture to the memory object
-        glImportMemoryWin32HandleEXT(memoryObject,
-                size,
-                GL_HANDLE_TYPE_D3D11_IMAGE_EXT,
-                info.shared_texture_handle
-        );
-
-        int error = glGetError();
-
-        if (error != GL_NO_ERROR) {
-            MCEF.INSTANCE.LOGGER.error("glImportMemoryWin32HandleEXT failed with error: {}", error);
-            // Cleanup the resources created so far
-            glDeleteTextures(sharedTextureId);
-            glDeleteMemoryObjectsEXT(memoryObject); // If memory object was created
-            return;
-        }
-
-        GlStateManager._bindTexture(sharedTextureId);
-
-        // Allocate immutable storage for the texture for the data from the memory object
-        // Use GL_RGBA8 since it is 4 bytes
-        glTexStorageMem2DEXT(
-                GL_TEXTURE_2D,      // Target (not texture ID)
-                1,                  // Mip levels
-                GL_RGBA8,           // Internal format
-                width,
-                height,
-                memoryObject,
-                0                   // Offset
-        );
-        glFinish();
-
-        var previousSharedTexture = this.sharedTexture;
-        glDeleteMemoryObjectsEXT(memoryObject);
-
-        directSharedTexture.setDirectTextureId(sharedTextureId, width, height);
-        this.sharedTexture = directSharedTexture.getTexture();
-        closeTexture(previousSharedTexture);
-        this.textureWidth = width;
-        this.textureHeight = height;
-
-        isAccelerated = true;
-        unpainted = false;
-        isBGRA = true;
-
-        GlStateManager._bindTexture(0);
+        windowsSharedTextureCache.putAndMoveToLast(info.shared_texture_handle, importedTexture);
+        trimWindowsSharedTextureCache();
+        activateSharedTexture(importedTexture.directTexture, width, height, true);
     }
 
     /**
@@ -458,9 +413,14 @@ public class MCEFRenderer implements Closeable {
             }
 
             var previousSharedTexture = this.sharedTexture;
-
+            var previousDirectSharedTexture = this.directSharedTexture;
+            var directSharedTexture = new MCEFDirectTexture();
             directSharedTexture.setDirectTextureId(sharedTextureId, width, height);
+            this.directSharedTexture = directSharedTexture;
             this.sharedTexture = directSharedTexture.getTexture();
+            if (previousDirectSharedTexture != null) {
+                previousDirectSharedTexture.close();
+            }
             closeTexture(previousSharedTexture);
             this.textureWidth = width;
             this.textureHeight = height;
@@ -569,6 +529,8 @@ public class MCEFRenderer implements Closeable {
             this.texture = null;
         }
 
+        clearWindowsSharedTextureCache();
+
         if (this.directSharedTexture != null) {
             this.directSharedTexture.close();
             this.directSharedTexture = null;
@@ -588,6 +550,102 @@ public class MCEFRenderer implements Closeable {
         isAccelerated = false;
     }
 
+    private @Nullable WindowsSharedTextureEntry importWindowsSharedTexture(long sharedTextureHandle, int width, int height) {
+        var sharedTextureId = glGenTextures();
+
+        var memoryObject = glCreateMemoryObjectsEXT();
+        if (memoryObject == 0) {
+            MCEF.INSTANCE.LOGGER.error("Failed to create memory object for shared texture.");
+            glDeleteTextures(sharedTextureId);
+            return null;
+        }
+
+        glImportMemoryWin32HandleEXT(
+                memoryObject,
+                WINDOWS_SHARED_TEXTURE_IMPORT_SIZE,
+                GL_HANDLE_TYPE_D3D11_IMAGE_EXT,
+                sharedTextureHandle
+        );
+
+        var error = glGetError();
+        if (error != GL_NO_ERROR) {
+            MCEF.INSTANCE.LOGGER.error("glImportMemoryWin32HandleEXT failed with error: {}", error);
+            glDeleteTextures(sharedTextureId);
+            glDeleteMemoryObjectsEXT(memoryObject);
+            return null;
+        }
+
+        GlStateManager._bindTexture(sharedTextureId);
+        glTexStorageMem2DEXT(
+                GL_TEXTURE_2D,
+                1,
+                GL_RGBA8,
+                width,
+                height,
+                memoryObject,
+                0
+        );
+        glFinish();
+        glDeleteMemoryObjectsEXT(memoryObject);
+
+        error = glGetError();
+        if (error != GL_NO_ERROR) {
+            MCEF.INSTANCE.LOGGER.error("glTexStorageMem2DEXT failed with error: {}", error);
+            glDeleteTextures(sharedTextureId);
+            GlStateManager._bindTexture(0);
+            return null;
+        }
+
+        GlStateManager._bindTexture(0);
+
+        var directTexture = new MCEFDirectTexture();
+        directTexture.setDirectTextureId(sharedTextureId, width, height);
+        return new WindowsSharedTextureEntry(width, height, directTexture);
+    }
+
+    private void activateSharedTexture(MCEFDirectTexture directSharedTexture, int width, int height, boolean bgra) {
+        this.directSharedTexture = directSharedTexture;
+        this.sharedTexture = directSharedTexture.getTexture();
+        this.textureWidth = width;
+        this.textureHeight = height;
+
+        isAccelerated = true;
+        unpainted = false;
+        isBGRA = bgra;
+    }
+
+    private void trimWindowsSharedTextureCache() {
+        while (windowsSharedTextureCache.size() > WINDOWS_SHARED_TEXTURE_CACHE_LIMIT) {
+            long eldestHandle = windowsSharedTextureCache.firstLongKey();
+            var evictedEntry = windowsSharedTextureCache.get(eldestHandle);
+            if (evictedEntry == null) {
+                return;
+            }
+
+            if (evictedEntry.directTexture == this.directSharedTexture) {
+                windowsSharedTextureCache.getAndMoveToLast(eldestHandle);
+                continue;
+            }
+
+            windowsSharedTextureCache.remove(eldestHandle);
+            evictedEntry.close();
+        }
+    }
+
+    private void clearWindowsSharedTextureCache() {
+        if (windowsSharedTextureCache.isEmpty()) {
+            return;
+        }
+
+        this.directSharedTexture = null;
+        this.sharedTexture = null;
+
+        for (var entry : windowsSharedTextureCache.values()) {
+            entry.close();
+        }
+        windowsSharedTextureCache.clear();
+    }
+
     private static void closeTexture(@Nullable GpuTexture texture) {
         switch (texture) {
             case null -> {}
@@ -598,6 +656,24 @@ public class MCEFRenderer implements Closeable {
             case GlTexture t -> t.close();
             default -> throw new IllegalStateException("Unexpected texture: %s (type=%s)"
                     .formatted(texture, texture.getClass().getSimpleName()));
+        }
+    }
+
+    private record WindowsSharedTextureEntry(
+            int width,
+            int height,
+            MCEFDirectTexture directTexture
+    ) implements Closeable {
+
+        private boolean matches(int width, int height) {
+            return this.width == width && this.height == height;
+        }
+
+        @Override
+        public void close() {
+            var texture = this.directTexture.getTexture();
+            this.directTexture.close();
+            closeTexture(texture);
         }
     }
 
