@@ -255,7 +255,7 @@ public class MCEFRenderer implements Closeable {
         var cachedTexture = windowsSharedTextureCache.getAndMoveToLast(info.shared_texture_handle);
         if (cachedTexture != null) {
             if (cachedTexture.matches(width, height)) {
-                activateSharedTexture(cachedTexture.directTexture, width, height, true);
+                copyWindowsSharedTexture(cachedTexture.directTexture, width, height);
                 return;
             }
 
@@ -270,7 +270,7 @@ public class MCEFRenderer implements Closeable {
 
         windowsSharedTextureCache.putAndMoveToLast(info.shared_texture_handle, importedTexture);
         trimWindowsSharedTextureCache();
-        activateSharedTexture(importedTexture.directTexture, width, height, true);
+        copyWindowsSharedTexture(importedTexture.directTexture, width, height);
     }
 
     /**
@@ -535,6 +535,7 @@ public class MCEFRenderer implements Closeable {
         }
 
         if (this.sharedTexture != null) {
+            this.sharedTexture.close();
             this.sharedTexture = null;
         }
 
@@ -600,15 +601,77 @@ public class MCEFRenderer implements Closeable {
         return new WindowsSharedTextureEntry(width, height, directTexture);
     }
 
-    private void activateSharedTexture(MCEFDirectTexture directSharedTexture, int width, int height, boolean bgra) {
-        this.directSharedTexture = directSharedTexture;
-        this.sharedTexture = directSharedTexture.getTexture();
+    private void copyWindowsSharedTexture(MCEFDirectTexture sourceTexture, int width, int height) {
+        var targetTexture = ensureWindowsAcceleratedTargetTexture(width, height);
+        if (targetTexture == null) {
+            return;
+        }
+
+        RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(
+                sourceTexture.getTexture(),
+                targetTexture,
+                0,
+                0,
+                0,
+                0,
+                0,
+                width,
+                height
+        );
+
         this.textureWidth = width;
         this.textureHeight = height;
 
         isAccelerated = true;
         unpainted = false;
-        isBGRA = bgra;
+        isBGRA = true;
+    }
+
+    private @Nullable GpuTexture ensureWindowsAcceleratedTargetTexture(int width, int height) {
+        if (sharedTexture != null && textureWidth == width && textureHeight == height) {
+            return sharedTexture;
+        }
+
+        if (directSharedTexture != null) {
+            directSharedTexture.close();
+            directSharedTexture = null;
+        }
+
+        if (sharedTexture != null) {
+            sharedTexture.close();
+            sharedTexture = null;
+        }
+
+        var targetTextureId = glGenTextures();
+        GlStateManager._bindTexture(targetTextureId);
+        glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA8,
+                width,
+                height,
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                (ByteBuffer) null
+        );
+
+        var error = glGetError();
+        if (error != GL_NO_ERROR) {
+            MCEF.INSTANCE.LOGGER.error("Failed to allocate accelerated paint target texture: {}", error);
+            glDeleteTextures(targetTextureId);
+            GlStateManager._bindTexture(0);
+            return null;
+        }
+        GlStateManager._bindTexture(0);
+
+        var directTexture = new MCEFDirectTexture();
+        directTexture.setOwnedDirectTextureId(targetTextureId, width, height);
+
+        this.directSharedTexture = directTexture;
+        this.sharedTexture = directTexture.getTexture();
+
+        return this.sharedTexture;
     }
 
     private void trimWindowsSharedTextureCache() {
@@ -633,9 +696,6 @@ public class MCEFRenderer implements Closeable {
         if (windowsSharedTextureCache.isEmpty()) {
             return;
         }
-
-        this.directSharedTexture = null;
-        this.sharedTexture = null;
 
         for (var entry : windowsSharedTextureCache.values()) {
             entry.close();
