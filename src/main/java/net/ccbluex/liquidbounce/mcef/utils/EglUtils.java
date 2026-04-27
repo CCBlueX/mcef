@@ -1,7 +1,6 @@
 package net.ccbluex.liquidbounce.mcef.utils;
 
 import net.ccbluex.liquidbounce.mcef.MCEF;
-import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.egl.EGL;
 import org.lwjgl.egl.EGL14;
@@ -32,8 +31,7 @@ import java.nio.IntBuffer;
  * along with LiquidBounce. If not, see <https://www.gnu.org/licenses/>.
  *
  */
-@NullMarked
-public class EglUtils {
+public final class EglUtils {
 
     private static @Nullable EGLCapabilities eglCapabilities = null;
     private static long eglDisplay = EGL14.EGL_NO_DISPLAY;
