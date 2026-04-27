@@ -29,6 +29,7 @@ import org.apache.commons.io.FileUtils;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -287,8 +288,8 @@ public class MCEFDownloadManager {
         downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), tempChecksumFile);
 
         if (checksumFile.exists()) {
-            boolean sameContent = FileUtils.readFileToString(checksumFile, "UTF-8").trim()
-                    .equals(FileUtils.readFileToString(tempChecksumFile, "UTF-8").trim());
+            boolean sameContent = FileUtils.readFileToString(checksumFile, StandardCharsets.UTF_8).trim()
+                    .equals(FileUtils.readFileToString(tempChecksumFile, StandardCharsets.UTF_8).trim());
 
             if (sameContent) {
                 FileUtils.deleteQuietly(tempChecksumFile);
@@ -310,9 +311,9 @@ public class MCEFDownloadManager {
             throw new RuntimeException("Checksum file does not exist");
         }
 
-        try {
-            var checksum = FileUtils.readFileToString(checksumFile, "UTF-8").trim();
-            var actualChecksum = DigestUtils.sha256Hex(new FileInputStream(archiveFile)).trim();
+        try (var fis = new FileInputStream(archiveFile)) {
+            var checksum = FileUtils.readFileToString(checksumFile, StandardCharsets.UTF_8).trim();
+            var actualChecksum = DigestUtils.sha256Hex(fis).trim();
 
             progressListener.onProgressUpdate("Comparing Checksum", 1.0f);
             return checksum.equals(actualChecksum);
