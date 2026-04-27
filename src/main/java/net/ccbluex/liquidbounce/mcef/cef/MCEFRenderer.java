@@ -250,17 +250,7 @@ public class MCEFRenderer implements Closeable {
                 texture.close();
             }
 
-            // Create new GpuTexture using the device
-            String label = "MCEF Browser Texture " + width + "x" + height;
-            texture = RenderSystem.getDevice().createTexture(
-                    label,
-                    GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST,
-                    TextureFormat.RGBA8,
-                    width,
-                    height,
-                    1, // depthOrLayers
-                    1  // mipLevels
-            );
+            texture = newRGBATexture("MCEF Browser Texture " + width + "x" + height, width, height);
 
             textureWidth = width;
             textureHeight = height;
@@ -370,9 +360,6 @@ public class MCEFRenderer implements Closeable {
 
     private void copyAcceleratedFrame(AcceleratedPaintFrame frame, int width, int height) {
         var targetTexture = ensureAcceleratedTargetTexture(width, height);
-        if (targetTexture == null) {
-            return;
-        }
 
         RenderSystem.getDevice().createCommandEncoder().copyTextureToTexture(
                 frame.texture(),
@@ -394,7 +381,7 @@ public class MCEFRenderer implements Closeable {
         isBGRA = frame.bgra();
     }
 
-    private @Nullable GpuTexture ensureAcceleratedTargetTexture(int width, int height) {
+    private GpuTexture ensureAcceleratedTargetTexture(int width, int height) {
         if (acceleratedTexture != null && textureWidth == width && textureHeight == height) {
             return acceleratedTexture;
         }
@@ -409,36 +396,36 @@ public class MCEFRenderer implements Closeable {
             acceleratedTexture = null;
         }
 
-        var targetTextureId = glGenTextures();
-        GlStateManager._bindTexture(targetTextureId);
-        glTexImage2D(
-                GL_TEXTURE_2D,
-                0,
-                GL_RGBA8,
-                width,
-                height,
-                0,
-                GL_RGBA,
-                GL_UNSIGNED_BYTE,
-                (ByteBuffer) null
-        );
+        var targetTexture = newRGBATexture("MCEF Accelerated Browser Texture " + width + "x" + height, width, height);
 
-        var error = glGetError();
-        if (error != GL_NO_ERROR) {
-            MCEF.INSTANCE.LOGGER.error("Failed to allocate accelerated paint target texture: {}", error);
-            glDeleteTextures(targetTextureId);
-            GlStateManager._bindTexture(0);
-            return null;
+        MCEFDirectTexture directTexture = null;
+        if (targetTexture instanceof GlTexture glTexture) {
+            directTexture = new MCEFDirectTexture();
+            directTexture.setDirectTextureId(glTexture.glId(), width, height);
         }
-        GlStateManager._bindTexture(0);
-
-        var directTexture = new MCEFDirectTexture();
-        directTexture.setOwnedDirectTextureId(targetTextureId, width, height);
 
         this.directAcceleratedTexture = directTexture;
-        this.acceleratedTexture = directTexture.getTexture();
+        this.acceleratedTexture = targetTexture;
 
         return this.acceleratedTexture;
+    }
+
+    private static GpuTexture newRGBATexture(
+        String label,
+        int width,
+        int height
+    ) {
+        return RenderSystem.getDevice().createTexture(label,
+            GpuTexture.USAGE_TEXTURE_BINDING
+                | GpuTexture.USAGE_RENDER_ATTACHMENT
+                | GpuTexture.USAGE_COPY_SRC
+                | GpuTexture.USAGE_COPY_DST,
+            TextureFormat.RGBA8,
+            width,
+            height,
+            1,
+            1
+        );
     }
 
 }
