@@ -23,6 +23,7 @@ package net.ccbluex.liquidbounce.mcef.utils;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import net.ccbluex.liquidbounce.mcef.MultiPartDownloadConfig;
 import net.ccbluex.liquidbounce.mcef.listeners.MCEFProgressListener;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -36,11 +37,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class FileUtilsDownloadTest {
 
@@ -53,8 +50,6 @@ class FileUtilsDownloadTest {
 
     @AfterEach
     void tearDown() {
-        FileUtils.setOkHttpClient(null);
-
         if (server != null) {
             server.stop(0);
             server = null;
@@ -123,6 +118,44 @@ class FileUtilsDownloadTest {
         assertEquals(1, listener.ends.get());
         assertEquals(data.length, listener.doneBytes.get());
         assertEquals(data.length, listener.doneContentLength.get());
+    }
+
+    @Test
+    void downloadFileUsesConfiguredMultiPartLimits() throws Exception {
+        var config = new MultiPartDownloadConfig(true, 3, 1024L * 1024L);
+
+        var data = createData(8 * 1024 * 1024);
+        var handler = new DownloadHandler(data, true);
+        server = createServer(handler);
+
+        var outputFile = tempDirectory.resolve("configured.bin").toFile();
+        var listener = new RecordingProgressListener(data.length);
+
+        FileUtils.downloadFile(listener, "configured", serverUrl(), outputFile, config);
+
+        assertArrayEquals(data, Files.readAllBytes(outputFile.toPath()));
+        assertEquals(1, handler.headRequests.get());
+        assertEquals(4, handler.partialRequests.get());
+        assertEquals(0, handler.wholeRequests.get());
+    }
+
+    @Test
+    void downloadFileFallsBackWhenMultiPartIsDisabledByConfig() throws Exception {
+        var config = new MultiPartDownloadConfig(false, 8, 1024L * 1024L);
+
+        var data = createData(8 * 1024 * 1024);
+        var handler = new DownloadHandler(data, true);
+        server = createServer(handler);
+
+        var outputFile = tempDirectory.resolve("disabled.bin").toFile();
+        var listener = new RecordingProgressListener(data.length);
+
+        FileUtils.downloadFile(listener, "disabled", serverUrl(), outputFile, config);
+
+        assertArrayEquals(data, Files.readAllBytes(outputFile.toPath()));
+        assertEquals(0, handler.headRequests.get());
+        assertEquals(0, handler.partialRequests.get());
+        assertEquals(1, handler.wholeRequests.get());
     }
 
     @Test

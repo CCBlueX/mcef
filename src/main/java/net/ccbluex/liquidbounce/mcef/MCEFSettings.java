@@ -21,10 +21,14 @@
 
 package net.ccbluex.liquidbounce.mcef;
 
+import okhttp3.OkHttpClient;
+import org.jspecify.annotations.Nullable;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class MCEFSettings {
 
@@ -45,6 +49,9 @@ public class MCEFSettings {
     ));
     private File cacheDirectory = null;
     private File librariesDirectory = null;
+
+    private MultiPartDownloadConfig multiPartDownloadConfig = MultiPartDownloadConfig.DEFAULT;
+    private @Nullable OkHttpClient okHttpClient = null;
 
     public List<String> getHosts() {
         return hosts;
@@ -100,6 +107,22 @@ public class MCEFSettings {
 
     public void setLibrariesDirectory(File librariesDirectory) {
         this.librariesDirectory = librariesDirectory;
+    }
+
+    public MultiPartDownloadConfig getMultiPartDownloadConfig() {
+        return multiPartDownloadConfig;
+    }
+
+    public void setMultiPartDownloadConfig(MultiPartDownloadConfig multiPartDownloadConfig) {
+        this.multiPartDownloadConfig = Objects.requireNonNull(multiPartDownloadConfig, "multiPartDownloadConfig");
+    }
+
+    public @Nullable OkHttpClient getOkHttpClient() {
+        return okHttpClient;
+    }
+
+    public void setOkHttpClient(@Nullable OkHttpClient okHttpClient) {
+        this.okHttpClient = okHttpClient;
     }
 
 }

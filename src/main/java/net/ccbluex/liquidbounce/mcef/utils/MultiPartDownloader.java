@@ -20,19 +20,13 @@
 
 package net.ccbluex.liquidbounce.mcef.utils;
 
+import net.ccbluex.liquidbounce.mcef.MultiPartDownloadConfig;
 import net.ccbluex.liquidbounce.mcef.listeners.MCEFProgressListener;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-import okio.Buffer;
-import okio.BufferedSink;
-import okio.BufferedSource;
-import okio.FileHandle;
-import okio.FileSystem;
-import okio.Okio;
-import okio.Path;
-import okio.Sink;
+import okio.*;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,10 +38,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLongArray;
 
 final class MultiPartDownloader {
@@ -68,35 +59,28 @@ final class MultiPartDownloader {
     private static final long PROGRESS_UPDATE_INTERVAL_NANOS = 100_000_000L;
 
     private final OkHttpClient client;
-    private final int partCount;
-    private final long minPartedDownloadSize;
+    private final MultiPartDownloadConfig config;
 
-    MultiPartDownloader(OkHttpClient client, int partCount, long minPartedDownloadSize) {
+    MultiPartDownloader(OkHttpClient client, MultiPartDownloadConfig config) {
         this.client = client;
-        this.partCount = partCount;
-        this.minPartedDownloadSize = minPartedDownloadSize;
+        this.config = config;
     }
 
     boolean canAttempt() {
-        return partCount > 1 && minPartedDownloadSize >= 0;
+        return config.enabled() && config.maxConcurrency() > 1;
     }
 
-    boolean download(MCEFProgressListener progressListener, String task, String urlString, File outputFile) throws IOException {
+    boolean download(MCEFProgressListener progressListener, String task, HttpUrl url, File outputFile) throws IOException {
         if (!canAttempt()) {
-            logDebug("Multipart download disabled: partCount={}, minPartedDownloadSize={}", partCount, minPartedDownloadSize);
-            return false;
-        }
-
-        var url = HttpUrl.parse(urlString);
-        if (url == null) {
-            logInfo("Multipart download skipped for task '{}': invalid URL", task);
+            logDebug("Multipart download disabled: enabled={}, maxConcurrency={}",
+                    config.enabled(), config.maxConcurrency());
             return false;
         }
 
         var headContentLength = fetchHeadContentLengthOrNull(url);
-        if (headContentLength != null && headContentLength < minPartedDownloadSize) {
-            logDebug("Multipart download skipped for task '{}': content length {} is below threshold {}",
-                    task, headContentLength, minPartedDownloadSize);
+        if (headContentLength != null && partCountFor(headContentLength) <= 1) {
+            logDebug("Multipart download skipped for task '{}': content length {} produces fewer than 2 parts",
+                    task, headContentLength);
             return false;
         }
 
@@ -105,12 +89,6 @@ final class MultiPartDownloader {
             logInfo("Multipart download unavailable for task '{}'; falling back to single request", task);
             return false;
         }
-        if (metadata.contentLength() < minPartedDownloadSize) {
-            logDebug("Multipart download skipped for task '{}': content length {} is below threshold {}",
-                    task, metadata.contentLength(), minPartedDownloadSize);
-            return false;
-        }
-
         var parts = split(metadata.contentLength());
         if (parts.length <= 1) {
             logDebug("Multipart download skipped for task '{}': content length {} produced {} part",
@@ -132,14 +110,16 @@ final class MultiPartDownloader {
         var futures = new ArrayList<Future<?>>(parts.length);
 
         try (var executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("MCEF Downloader ", 0).factory())) {
+            var completionService = new ExecutorCompletionService<Void>(executor);
+
             try (var fileHandle = FileSystem.SYSTEM.openReadWrite(Path.get(tempFile))) {
                 fileHandle.resize(metadata.contentLength());
 
                 for (var part : parts) {
-                    futures.add(executor.submit(new PartDownload(part, reporter, url, fileHandle, metadata.contentLength())));
+                    futures.add(completionService.submit(new PartDownload(part, reporter, url, fileHandle, metadata.contentLength())));
                 }
 
-                waitForParts(futures);
+                waitForParts(futures, completionService);
                 reporter.finish();
             }
 
@@ -158,7 +138,7 @@ final class MultiPartDownloader {
             Thread.currentThread().interrupt();
             Files.deleteIfExists(tempFile);
             logInfo("Multipart download interrupted for task '{}'", task);
-            throw new IOException("Interrupted while downloading " + urlString, e);
+            throw new IOException("Interrupted while downloading " + url, e);
         } catch (ExecutionException e) {
             cancel(futures);
             Files.deleteIfExists(tempFile);
@@ -271,7 +251,7 @@ final class MultiPartDownloader {
     }
 
     private Part[] split(long contentLength) {
-        var count = (int) Math.min(partCount, contentLength);
+        var count = partCountFor(contentLength);
         var partSize = contentLength / count;
         var remainder = contentLength % count;
         var parts = new Part[count];
@@ -287,9 +267,19 @@ final class MultiPartDownloader {
         return parts;
     }
 
-    private void waitForParts(List<Future<?>> futures) throws InterruptedException, ExecutionException {
-        for (var future : futures) {
-            future.get();
+    private int partCountFor(long contentLength) {
+        return (int) Math.min(config.maxConcurrency(), contentLength / config.minPartSizeBytes());
+    }
+
+    private void waitForParts(List<Future<?>> futures, CompletionService<Void> completionService)
+            throws InterruptedException, ExecutionException {
+        for (int remaining = futures.size(); remaining > 0; remaining--) {
+            try {
+                completionService.take().get();
+            } catch (InterruptedException | ExecutionException e) {
+                cancel(futures);
+                throw e;
+            }
         }
     }
 

@@ -22,8 +22,10 @@
 package net.ccbluex.liquidbounce.mcef.utils;
 
 import com.google.common.base.Suppliers;
-import net.ccbluex.liquidbounce.mcef.listeners.OkHttpProgressInterceptor;
+import net.ccbluex.liquidbounce.mcef.MultiPartDownloadConfig;
 import net.ccbluex.liquidbounce.mcef.listeners.MCEFProgressListener;
+import net.ccbluex.liquidbounce.mcef.listeners.OkHttpProgressInterceptor;
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okio.Okio;
@@ -33,12 +35,10 @@ import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.jspecify.annotations.Nullable;
 
 import java.io.*;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 public class FileUtils {
-
-    private static final int MULTI_PART_DOWNLOAD_PARTS = 8;
-    private static final long MULTI_PART_DOWNLOAD_THRESHOLD = 16L * 1024L * 1024L;
 
     private FileUtils() {}
 
@@ -49,27 +49,30 @@ public class FileUtils {
             .build()
     );
 
-    private static @Nullable OkHttpClient client = null;
-
-    public static void setOkHttpClient(@Nullable OkHttpClient client) {
-        FileUtils.client = client;
-    }
-
-    private static OkHttpClient getClient() {
+    private static OkHttpClient getClient(@Nullable OkHttpClient client) {
         return client != null ? client : DEFAULT.get();
     }
 
     public static void downloadFile(MCEFProgressListener progressListener, String task, String urlString, File outputFile) throws IOException {
-        downloadFile(progressListener, task, urlString, outputFile, true);
+        downloadFile(progressListener, task, urlString, outputFile, MultiPartDownloadConfig.DEFAULT);
     }
 
-    public static void downloadFile(MCEFProgressListener progressListener, String task, String urlString, File outputFile, boolean allowMultiPart) throws IOException {
-        var client = getClient();
-        if (allowMultiPart) {
-            var multiPartDownloader = new MultiPartDownloader(client, MULTI_PART_DOWNLOAD_PARTS, MULTI_PART_DOWNLOAD_THRESHOLD);
-            if (multiPartDownloader.download(progressListener, task, urlString, outputFile)) {
-                return;
-            }
+    public static void downloadFile(MCEFProgressListener progressListener, String task, String urlString, File outputFile,
+                                    MultiPartDownloadConfig multiPartDownloadConfig) throws IOException {
+        downloadFile(progressListener, task, urlString, outputFile, multiPartDownloadConfig, null);
+    }
+
+    public static void downloadFile(MCEFProgressListener progressListener, String task, String urlString, File outputFile,
+                                    MultiPartDownloadConfig multiPartDownloadConfig,
+                                    @Nullable OkHttpClient okHttpClient) throws IOException {
+        Objects.requireNonNull(multiPartDownloadConfig, "multiPartDownloadConfig");
+
+        var url = HttpUrl.get(urlString);
+
+        var client = getClient(okHttpClient);
+        var multiPartDownloader = new MultiPartDownloader(client, multiPartDownloadConfig);
+        if (multiPartDownloader.download(progressListener, task, url, outputFile)) {
+            return;
         }
 
         var progressClient = client.newBuilder()
@@ -87,9 +90,7 @@ public class FileUtils {
                 }))
                 .build();
 
-        var request = new Request.Builder()
-                .url(urlString)
-                .build();
+        var request = new Request.Builder().url(url).build();
 
         try (var response = progressClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {

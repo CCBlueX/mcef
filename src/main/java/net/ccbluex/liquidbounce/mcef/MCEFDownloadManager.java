@@ -167,6 +167,7 @@ public class MCEFDownloadManager {
     public void downloadJcef() throws IOException {
         hostCounter = 0;
 
+        var settings = MCEF.INSTANCE.getSettings();
         var tarGzArchive = new File(commitDirectory, platform.getNormalizedName() + ".tar.gz");
         var checksumFile = new File(commitDirectory, platform.getNormalizedName() + ".tar.gz.sha256");
 
@@ -183,7 +184,8 @@ public class MCEFDownloadManager {
             MCEF.INSTANCE.getLogger().info("Downloading checksum file... [{}/{}]", hostCounter + 1, hosts.length);
 
             try {
-                downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), checksumFile, false);
+                downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), checksumFile,
+                        MultiPartDownloadConfig.DISABLED, settings.getOkHttpClient());
             } catch (Exception e) {
                 MCEF.INSTANCE.getLogger().error("Failed to download checksum file from host {}", hosts[hostCounter], e);
                 hostCounter++;
@@ -211,7 +213,8 @@ public class MCEFDownloadManager {
             try {
                 // Download JCEF from file hosting
                 MCEF.INSTANCE.getLogger().info("Downloading JCEF... [{}/{}]", hostCounter + 1, hosts.length);
-                downloadFile(progressListener, "Downloading JCEF", getJavaCefDownloadUrl(), tarGzArchive);
+                downloadFile(progressListener, "Downloading JCEF", getJavaCefDownloadUrl(), tarGzArchive,
+                        settings.getMultiPartDownloadConfig(), settings.getOkHttpClient());
 
                 // Compare checksum of archive file with remote checksum file
                 progressListener.onProgressUpdate("Comparing Checksum", 0.0f);
@@ -285,7 +288,9 @@ public class MCEFDownloadManager {
     private boolean compareChecksum(File checksumFile) throws IOException {
         // Create temporary checksum file with the same name as the real checksum file and .temp appended
         var tempChecksumFile = new File(checksumFile.getCanonicalPath() + ".temp");
-        downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), tempChecksumFile, false);
+        var settings = MCEF.INSTANCE.getSettings();
+        downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), tempChecksumFile,
+                MultiPartDownloadConfig.DISABLED, settings.getOkHttpClient());
 
         if (checksumFile.exists()) {
             boolean sameContent = FileUtils.readFileToString(checksumFile, StandardCharsets.UTF_8).trim()
