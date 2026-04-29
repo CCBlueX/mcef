@@ -33,16 +33,14 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLongArray;
 
@@ -118,12 +116,17 @@ final class MultiPartDownloader {
         try (var executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("MCEF Downloader ", 0).factory())) {
             var completionService = new ExecutorCompletionService<Void>(executor);
 
-            for (var part : parts) {
-                futures.add(completionService.submit(new PartDownload(part, reporter, url, tempFile, metadata.contentLength())));
-            }
+            try (var file = new RandomAccessFile(tempFile.toFile(), "rw");
+                 var channel = file.getChannel()) {
+                file.setLength(metadata.contentLength());
 
-            waitForParts(futures, completionService);
-            reporter.finish();
+                for (var part : parts) {
+                    futures.add(completionService.submit(new PartDownload(part, reporter, url, channel, metadata.contentLength())));
+                }
+
+                waitForParts(futures, completionService);
+                reporter.finish();
+            }
 
             Files.move(tempFile, outputFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             progressListener.onFileEnd(task);
@@ -370,14 +373,14 @@ final class MultiPartDownloader {
         private final Part part;
         private final ProgressReporter reporter;
         private final HttpUrl url;
-        private final Path tempFile;
+        private final FileChannel channel;
         private final long totalLength;
 
-        private PartDownload(Part part, ProgressReporter reporter, HttpUrl url, Path tempFile, long totalLength) {
+        private PartDownload(Part part, ProgressReporter reporter, HttpUrl url, FileChannel channel, long totalLength) {
             this.part = part;
             this.reporter = reporter;
             this.url = url;
-            this.tempFile = tempFile;
+            this.channel = channel;
             this.totalLength = totalLength;
         }
 
@@ -398,9 +401,7 @@ final class MultiPartDownloader {
                 }
                 validateContentRange(response);
 
-                var body = response.body();
-                try (var source = body.source();
-                     var channel = FileChannel.open(tempFile, Set.of(StandardOpenOption.WRITE))) {
+                try (var source = response.body().source()) {
                     copyPart(source, channel);
                 }
             }
