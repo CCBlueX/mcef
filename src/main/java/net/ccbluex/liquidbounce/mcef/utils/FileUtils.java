@@ -30,11 +30,15 @@ import okio.Okio;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.jspecify.annotations.Nullable;
 
 import java.io.*;
 import java.util.function.Supplier;
 
 public class FileUtils {
+
+    private static final int MULTI_PART_DOWNLOAD_PARTS = 8;
+    private static final long MULTI_PART_DOWNLOAD_THRESHOLD = 16L * 1024L * 1024L;
 
     private FileUtils() {}
 
@@ -45,9 +49,9 @@ public class FileUtils {
             .build()
     );
 
-    private static OkHttpClient client = null;
+    private static @Nullable OkHttpClient client = null;
 
-    public static void setOkHttpClient(OkHttpClient client) {
+    public static void setOkHttpClient(@Nullable OkHttpClient client) {
         FileUtils.client = client;
     }
 
@@ -56,7 +60,19 @@ public class FileUtils {
     }
 
     public static void downloadFile(MCEFProgressListener progressListener, String task, String urlString, File outputFile) throws IOException {
-        var client = getClient().newBuilder()
+        downloadFile(progressListener, task, urlString, outputFile, true);
+    }
+
+    public static void downloadFile(MCEFProgressListener progressListener, String task, String urlString, File outputFile, boolean allowMultiPart) throws IOException {
+        var client = getClient();
+        if (allowMultiPart) {
+            var multiPartDownloader = new MultiPartDownloader(client, MULTI_PART_DOWNLOAD_PARTS, MULTI_PART_DOWNLOAD_THRESHOLD);
+            if (multiPartDownloader.download(progressListener, task, urlString, outputFile)) {
+                return;
+            }
+        }
+
+        var progressClient = client.newBuilder()
                 .addNetworkInterceptor(new OkHttpProgressInterceptor((bytesRead, contentLength, done) -> {
                     if (contentLength > 0) {
                         float percentComplete = (float) bytesRead / contentLength;
@@ -75,7 +91,7 @@ public class FileUtils {
                 .url(urlString)
                 .build();
 
-        try (var response = client.newCall(request).execute()) {
+        try (var response = progressClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException(String.format(
                         "Download Failed: %n" +
@@ -94,7 +110,7 @@ public class FileUtils {
             }
 
             var body = response.body();
-            outputFile.getParentFile().mkdirs();
+            makeParentDirectories(outputFile);
 
             progressListener.onFileStart(task);
 
@@ -114,6 +130,13 @@ public class FileUtils {
                     e.getMessage(),
                     e.getCause() != null ? e.getCause().toString() : "None"
             ), e);
+        }
+    }
+
+    private static void makeParentDirectories(File file) throws IOException {
+        var parentFile = file.getParentFile();
+        if (parentFile != null && !parentFile.exists() && !parentFile.mkdirs()) {
+            throw new IOException("Failed to create directory: " + parentFile);
         }
     }
 

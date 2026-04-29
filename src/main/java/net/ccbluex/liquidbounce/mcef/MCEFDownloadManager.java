@@ -183,7 +183,7 @@ public class MCEFDownloadManager {
             MCEF.INSTANCE.getLogger().info("Downloading checksum file... [{}/{}]", hostCounter + 1, hosts.length);
 
             try {
-                downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), checksumFile);
+                downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), checksumFile, false);
             } catch (Exception e) {
                 MCEF.INSTANCE.getLogger().error("Failed to download checksum file from host {}", hosts[hostCounter], e);
                 hostCounter++;
@@ -285,7 +285,7 @@ public class MCEFDownloadManager {
     private boolean compareChecksum(File checksumFile) throws IOException {
         // Create temporary checksum file with the same name as the real checksum file and .temp appended
         var tempChecksumFile = new File(checksumFile.getCanonicalPath() + ".temp");
-        downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), tempChecksumFile);
+        downloadFile(progressListener, "Downloading Checksum", getJavaCefChecksumDownloadUrl(), tempChecksumFile, false);
 
         if (checksumFile.exists()) {
             boolean sameContent = FileUtils.readFileToString(checksumFile, StandardCharsets.UTF_8).trim()
