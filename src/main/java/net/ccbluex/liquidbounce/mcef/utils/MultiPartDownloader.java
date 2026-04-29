@@ -26,18 +26,23 @@ import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-import okio.*;
+import okio.BufferedSource;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLongArray;
 
@@ -57,6 +62,7 @@ final class MultiPartDownloader {
     private static final String RANGE = "Range";
     private static final int HTTP_PARTIAL_CONTENT = 206;
     private static final long PROGRESS_UPDATE_INTERVAL_NANOS = 100_000_000L;
+    private static final int COPY_BUFFER_SIZE = 64 * 1024;
 
     private final OkHttpClient client;
     private final MultiPartDownloadConfig config;
@@ -112,16 +118,12 @@ final class MultiPartDownloader {
         try (var executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("MCEF Downloader ", 0).factory())) {
             var completionService = new ExecutorCompletionService<Void>(executor);
 
-            try (var fileHandle = FileSystem.SYSTEM.openReadWrite(Path.get(tempFile))) {
-                fileHandle.resize(metadata.contentLength());
-
-                for (var part : parts) {
-                    futures.add(completionService.submit(new PartDownload(part, reporter, url, fileHandle, metadata.contentLength())));
-                }
-
-                waitForParts(futures, completionService);
-                reporter.finish();
+            for (var part : parts) {
+                futures.add(completionService.submit(new PartDownload(part, reporter, url, tempFile, metadata.contentLength())));
             }
+
+            waitForParts(futures, completionService);
+            reporter.finish();
 
             Files.move(tempFile, outputFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             progressListener.onFileEnd(task);
@@ -311,13 +313,13 @@ final class MultiPartDownloader {
         }
     }
 
-    private static void logInfo(String message, Object... arguments) {
+    private static void logInfo(String message, @Nullable Object... arguments) {
         if (isLogLevelEnabled(DOWNLOAD_LOG_INFO) && LOGGER.isInfoEnabled()) {
             LOGGER.info(message, arguments);
         }
     }
 
-    private static void logDebug(String message, Object... arguments) {
+    private static void logDebug(String message, @Nullable Object... arguments) {
         if (isLogLevelEnabled(DOWNLOAD_LOG_DEBUG) && LOGGER.isDebugEnabled()) {
             LOGGER.debug(message, arguments);
         }
@@ -368,14 +370,14 @@ final class MultiPartDownloader {
         private final Part part;
         private final ProgressReporter reporter;
         private final HttpUrl url;
-        private final FileHandle fileHandle;
+        private final Path tempFile;
         private final long totalLength;
 
-        private PartDownload(Part part, ProgressReporter reporter, HttpUrl url, FileHandle fileHandle, long totalLength) {
+        private PartDownload(Part part, ProgressReporter reporter, HttpUrl url, Path tempFile, long totalLength) {
             this.part = part;
             this.reporter = reporter;
             this.url = url;
-            this.fileHandle = fileHandle;
+            this.tempFile = tempFile;
             this.totalLength = totalLength;
         }
 
@@ -398,8 +400,8 @@ final class MultiPartDownloader {
 
                 var body = response.body();
                 try (var source = body.source();
-                     var sink = fileHandle.sink(part.start())) {
-                    copyPart(source, sink);
+                     var channel = FileChannel.open(tempFile, Set.of(StandardOpenOption.WRITE))) {
+                    copyPart(source, channel);
                 }
             }
 
@@ -418,17 +420,17 @@ final class MultiPartDownloader {
             }
         }
 
-        private void copyPart(BufferedSource source, Sink sink) throws IOException {
-            var buffer = new Buffer();
+        private void copyPart(BufferedSource source, FileChannel channel) throws IOException {
+            var buffer = new byte[COPY_BUFFER_SIZE];
             long bytesRead = 0L;
-            long read;
+            int read;
 
-            while ((read = source.read(buffer, 8192L)) != -1L) {
+            while ((read = readChunk(source, buffer)) != -1) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new IOException("Part download interrupted");
                 }
 
-                sink.write(buffer, read);
+                writeFully(channel, buffer, read, part.start() + bytesRead);
                 bytesRead += read;
                 reporter.update(part.index(), bytesRead, false);
             }
@@ -440,6 +442,31 @@ final class MultiPartDownloader {
             }
 
             reporter.update(part.index(), bytesRead, true);
+        }
+
+        private int readChunk(BufferedSource source, byte[] buffer) throws IOException {
+            int offset = 0;
+            while (offset < buffer.length) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new IOException("Part download interrupted");
+                }
+
+                var read = source.read(buffer, offset, buffer.length - offset);
+                if (read == -1) {
+                    return offset == 0 ? -1 : offset;
+                }
+
+                offset += read;
+            }
+
+            return offset;
+        }
+
+        private void writeFully(FileChannel channel, byte[] buffer, int length, long position) throws IOException {
+            var byteBuffer = ByteBuffer.wrap(buffer, 0, length);
+            while (byteBuffer.hasRemaining()) {
+                position += channel.write(byteBuffer, position);
+            }
         }
     }
 
