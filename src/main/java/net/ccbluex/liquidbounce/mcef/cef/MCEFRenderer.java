@@ -273,7 +273,7 @@ public class MCEFRenderer implements Closeable {
             GlStateManager._pixelStore(GL_UNPACK_SKIP_ROWS, 0);
 
             // Upload the full texture
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
+            GlStateManager._texImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
                     GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
 
             isBGRA = false;
@@ -297,7 +297,7 @@ public class MCEFRenderer implements Closeable {
         if (texture instanceof GlTexture glTexture) {
             // Bind and update sub-region
             GlStateManager._bindTexture(glTexture.glId());
-            glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA,
+            GlStateManager._texSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA,
                     GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
         }
     }
