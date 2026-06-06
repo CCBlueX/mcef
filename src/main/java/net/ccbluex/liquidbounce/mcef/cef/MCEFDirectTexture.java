@@ -20,12 +20,13 @@
 
 package net.ccbluex.liquidbounce.mcef.cef;
 
+import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.opengl.FrameBufferCache;
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.opengl.GlTextureView;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuTexture;
-import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.gui.render.TextureSetup;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import org.jspecify.annotations.NullMarked;
@@ -103,13 +104,15 @@ public class MCEFDirectTexture extends AbstractTexture {
      * without managing its lifecycle.
      */
     static class DirectGlTexture extends GlTexture {
+        private static final FrameBufferCache FRAME_BUFFER_CACHE = new FrameBufferCache();
+
         private final boolean ownsTexture;
 
         protected DirectGlTexture(int textureId, int width, int height, boolean ownsTexture) {
             super(
                 GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_SRC | GpuTexture.USAGE_COPY_DST,
                 "MCEF Direct Texture " + textureId + " (" + width + "x" + height + ")",
-                TextureFormat.RGBA8, width, height, 1, 1, textureId
+                GpuFormat.RGBA8_UNORM, width, height, 1, 1, textureId, FRAME_BUFFER_CACHE
             );
             this.ownsTexture = ownsTexture;
         }
