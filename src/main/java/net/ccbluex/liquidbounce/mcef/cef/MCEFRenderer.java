@@ -22,9 +22,11 @@
 package net.ccbluex.liquidbounce.mcef.cef;
 
 import com.mojang.blaze3d.GpuFormat;
+import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.opengl.GlStateManager;
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuSampler;
 import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
@@ -35,21 +37,22 @@ import org.cef.handler.CefAcceleratedPaintInfo;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
+import java.awt.*;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.UUID;
 
 import static net.ccbluex.liquidbounce.mcef.MCEF.mc;
-import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.opengl.GL12.GL_BGRA;
-import static org.lwjgl.opengl.GL12.GL_UNSIGNED_INT_8_8_8_8_REV;
 
 @NullMarked
 public class MCEFRenderer implements Closeable {
     private final boolean transparent;
     // CPU paint texture.
     private @Nullable GpuTexture texture = null;
+    private @Nullable GpuTextureView textureView = null;
+    private @Nullable GpuSampler sampler = null;
+    private @Nullable TextureSetup textureSetup = null;
     // Stable accelerated display texture exposed to Minecraft.
     private @Nullable GpuTexture acceleratedTexture = null;
     private int textureWidth = 0;
@@ -57,7 +60,6 @@ public class MCEFRenderer implements Closeable {
 
     // ResourceLocation for this renderer's texture
     private final Identifier identifier;
-    private @Nullable MCEFDirectTexture directTexture;
     private @Nullable MCEFDirectTexture directAcceleratedTexture;
     private boolean textureRegistered = false;
     private final List<AcceleratedPaintBackend> acceleratedPaintBackends = List.of(
@@ -81,21 +83,8 @@ public class MCEFRenderer implements Closeable {
      * Initializes the renderer by generating a texture ID and setting up the texture parameters.
      */
     public void initialize() {
-        // Create and register the direct texture wrapper with Minecraft's TextureManager
-        directTexture = new MCEFDirectTexture();
-        mc.getTextureManager().register(identifier, directTexture);
+        mc.getTextureManager().register(identifier, new MCEFGpuTexture(this));
         textureRegistered = true;
-    }
-
-    /**
-     * Returns the texture ID for the renderer.
-     * If accelerated rendering is enabled, it returns the shared texture ID.
-     * @return OpenGL texture ID
-     */
-    @Deprecated(since = "1.21.5")
-    public int getTextureId() {
-        var texture = getTexture();
-        return !(texture instanceof GlTexture) ? 0 : ((GlTexture) texture).glId();
     }
 
     /**
@@ -111,18 +100,17 @@ public class MCEFRenderer implements Closeable {
         }
     }
 
-    private @Nullable MCEFDirectTexture getDirectTexture() {
-        return isAccelerated ? directAcceleratedTexture : directTexture;
-    }
-
     /**
      * Returns the texture view for the renderer.
      * If accelerated rendering is enabled, it returns the shared texture.
      * @return GpuTextureView
      */
     public @Nullable GpuTextureView getTextureView() {
-        var directTexture = this.getDirectTexture();
-        return directTexture == null ? null : directTexture.getTextureView();
+        if (!isAccelerated) {
+            return textureView;
+        }
+
+        return directAcceleratedTexture == null ? null : directAcceleratedTexture.getTextureView();
     }
 
     /**
@@ -130,8 +118,11 @@ public class MCEFRenderer implements Closeable {
      * @return GpuSampler
      */
     public @Nullable GpuSampler getSampler() {
-        var directTexture = this.getDirectTexture();
-        return directTexture == null ? null : directTexture.getSampler();
+        if (!isAccelerated) {
+            return sampler;
+        }
+
+        return directAcceleratedTexture == null ? null : directAcceleratedTexture.getSampler();
     }
 
     /**
@@ -140,8 +131,11 @@ public class MCEFRenderer implements Closeable {
      * @return TextureSetup
      */
     public @Nullable TextureSetup getTextureSetup() {
-        var directTexture = this.getDirectTexture();
-        return directTexture == null ? null : directTexture.getTextureSetup();
+        if (!isAccelerated) {
+            return textureSetup;
+        }
+
+        return directAcceleratedTexture == null ? null : directAcceleratedTexture.getTextureSetup();
     }
 
     /**
@@ -156,7 +150,7 @@ public class MCEFRenderer implements Closeable {
      * Check if the texture is ready for rendering with GuiGraphics
      */
     public boolean isTextureReady() {
-        return isAccelerated ? acceleratedTexture != null : texture != null && textureRegistered && directTexture != null;
+        return isAccelerated ? acceleratedTexture != null : texture != null && textureSetup != null;
     }
 
     /**
@@ -201,10 +195,13 @@ public class MCEFRenderer implements Closeable {
     }
 
     /**
-     * Checks if the texture format is BGRA. This is the case when we use [onAcceleratedPaint] with
-     * {@link CefAcceleratedPaintInfo} as it uses the BGRA format for shared textures.
+     * Checks if consumers need to swap the sampled red and blue channels.
+     * <p>
+     * CEF software paint supplies BGRA bytes. The CPU paint path uploads those bytes through Blaze3D's
+     * RGBA texture API without a CPU-side channel conversion, so consumers must use a BGRA-aware shader.
+     * Accelerated paint may also require the same shader depending on the imported platform texture.
      *
-     * @return true if the texture format is BGRA, false otherwise
+     * @return true if the sampled texture needs red/blue channel swapping, false otherwise
      */
     public boolean isBGRA() {
         return isBGRA;
@@ -245,62 +242,90 @@ public class MCEFRenderer implements Closeable {
     protected void onPaint(ByteBuffer buffer, int width, int height) {
         RenderSystem.assertOnRenderThread();
 
-        // Create or recreate texture if size changed
-        if (texture == null || textureWidth != width || textureHeight != height) {
-            if (texture != null) {
-                texture.close();
-            }
+        var texture = ensureTexture(width, height);
 
-            texture = newRGBATexture("MCEF Browser Texture " + width + "x" + height, width, height);
+        RenderSystem.getDevice().createCommandEncoder().writeToTexture(
+                texture,
+                fixedByteBuffer(buffer, (long) width * height * GpuFormat.RGBA8_UNORM.blockSize()),
+                0,
+                0,
+                0,
+                0,
+                width,
+                height
+        );
 
-            textureWidth = width;
-            textureHeight = height;
-
-            // Update the direct texture wrapper to point to our new texture
-            if (directTexture != null && texture instanceof GlTexture glTexture) {
-                directTexture.setDirectTextureId(glTexture.glId(), width, height);
-            }
-        }
-
-        if (transparent) {
-            GlStateManager._enableBlend(0);
-        }
-
-        if (texture instanceof GlTexture glTexture) {
-            // Bind the texture directly using its GL ID
-            GlStateManager._bindTexture(glTexture.glId());
-            GlStateManager._pixelStore(GL_UNPACK_ROW_LENGTH, width);
-            GlStateManager._pixelStore(GL_UNPACK_SKIP_PIXELS, 0);
-            GlStateManager._pixelStore(GL_UNPACK_SKIP_ROWS, 0);
-
-            // Upload the full texture
-            GlStateManager._texImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
-                    GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
-
-            isBGRA = false;
-            unpainted = false;
-        }
+        isAccelerated = false;
+        isBGRA = true;
+        unpainted = false;
     }
 
     /**
      * Paints a sub-region of the texture with the provided ByteBuffer data.
      * This method is called when CEF provides a ByteBuffer for painting a specific area.
      *
-     * @param buffer The ByteBuffer containing the pixel data to paint.
-     * @param x      The x-coordinate of the sub-region to paint.
-     * @param y      The y-coordinate of the sub-region to paint.
-     * @param width  The width of the sub-region to paint.
-     * @param height The height of the sub-region to paint.
+     * @param buffer       The ByteBuffer containing the source pixel data.
+     * @param sourceWidth  The width of the source pixel buffer.
+     * @param sourceHeight The height of the source pixel buffer.
+     * @param dirtyRects   The source rectangles to copy.
+     * @param destOffsetX  The destination x offset added to every dirty rect.
+     * @param destOffsetY  The destination y offset added to every dirty rect.
      */
-    protected void onPaint(ByteBuffer buffer, int x, int y, int width, int height) {
+    protected void onPaint(
+            ByteBuffer buffer,
+            int sourceWidth,
+            int sourceHeight,
+            Rectangle[] dirtyRects,
+            int destOffsetX,
+            int destOffsetY
+    ) {
         RenderSystem.assertOnRenderThread();
 
-        if (texture instanceof GlTexture glTexture) {
-            // Bind and update sub-region
-            GlStateManager._bindTexture(glTexture.glId());
-            GlStateManager._texSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_BGRA,
-                    GL_UNSIGNED_INT_8_8_8_8_REV, buffer);
+        if (texture == null || dirtyRects.length == 0) {
+            return;
         }
+
+        var commandEncoder = RenderSystem.getDevice().createCommandEncoder();
+        var source = commandEncoder.transientMemory()
+                .uploadStaging(fixedByteBuffer(buffer, (long) sourceWidth * sourceHeight * GpuFormat.RGBA8_UNORM.blockSize()),
+                        1L, GpuBuffer.USAGE_COPY_SRC);
+
+        for (var dirtyRect : dirtyRects) {
+            commandEncoder.copyBufferToTexture(
+                    source,
+                    dirtyRect.x,
+                    dirtyRect.y,
+                    sourceWidth,
+                    sourceHeight,
+                    texture,
+                    destOffsetX + dirtyRect.x,
+                    destOffsetY + dirtyRect.y,
+                    dirtyRect.width,
+                    dirtyRect.height,
+                    0,
+                    0
+            );
+        }
+
+        isAccelerated = false;
+        isBGRA = true;
+        unpainted = false;
+    }
+
+    protected void onPaint(
+            ByteBuffer buffer,
+            int sourceWidth,
+            int sourceHeight,
+            int sourceX,
+            int sourceY,
+            int destX,
+            int destY,
+            int width,
+            int height
+    ) {
+        onPaint(buffer, sourceWidth, sourceHeight, new Rectangle[]{
+                new Rectangle(sourceX, sourceY, width, height)
+        }, destX - sourceX, destY - sourceY);
     }
 
     /**
@@ -310,15 +335,17 @@ public class MCEFRenderer implements Closeable {
     public void close() {
         RenderSystem.assertOnRenderThread();
 
-        if (this.directTexture != null) {
-            this.directTexture.close();
-            this.directTexture = null;
+        if (this.textureView != null) {
+            this.textureView.close();
+            this.textureView = null;
         }
 
         if (this.texture != null) {
             this.texture.close();
             this.texture = null;
         }
+
+        this.textureSetup = null;
 
         for (var backend : acceleratedPaintBackends) {
             backend.close();
@@ -409,6 +436,43 @@ public class MCEFRenderer implements Closeable {
         this.acceleratedTexture = targetTexture;
 
         return this.acceleratedTexture;
+    }
+
+    private GpuTexture ensureTexture(int width, int height) {
+        if (texture != null && textureWidth == width && textureHeight == height) {
+            return texture;
+        }
+
+        if (textureView != null) {
+            textureView.close();
+            textureView = null;
+        }
+
+        if (texture != null) {
+            texture.close();
+            texture = null;
+        }
+
+        texture = newRGBATexture("MCEF Browser Texture " + width + "x" + height, width, height);
+        textureView = RenderSystem.getDevice().createTextureView(texture);
+        sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR, false);
+        textureSetup = TextureSetup.singleTexture(textureView, sampler);
+
+        textureWidth = width;
+        textureHeight = height;
+
+        return texture;
+    }
+
+    private static ByteBuffer fixedByteBuffer(ByteBuffer buffer, long length) {
+        if (length > buffer.capacity()) {
+            throw new IllegalArgumentException("Buffer capacity " + buffer.capacity() + " is smaller than required " + length);
+        }
+
+        var duplicate = buffer.duplicate();
+        duplicate.position(0);
+        duplicate.limit(Math.toIntExact(length));
+        return duplicate;
     }
 
     private static GpuTexture newRGBATexture(

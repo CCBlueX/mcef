@@ -21,7 +21,6 @@
 
 package net.ccbluex.liquidbounce.mcef.cef;
 
-import com.mojang.blaze3d.opengl.GlStateManager;
 import net.ccbluex.liquidbounce.mcef.MCEF;
 import net.ccbluex.liquidbounce.mcef.MCEFPlatform;
 import net.ccbluex.liquidbounce.mcef.glfw.MCEFGlfwCursorHelper;
@@ -43,7 +42,6 @@ import java.nio.ByteBuffer;
 
 import static net.ccbluex.liquidbounce.mcef.MCEF.mc;
 import static org.lwjgl.glfw.GLFW.*;
-import static org.lwjgl.opengl.GL11.*;
 
 /**
  * An instance of an "Off-screen rendered" Chromium web browser.
@@ -165,43 +163,37 @@ public class MCEFBrowser extends CefBrowserOsr {
                 // this also sets up the texture size and creates the texture
                 renderer.onPaint(buffer, width, height);
             } else {
-                if (renderer.getTextureId() == 0) return;
-                GlStateManager._bindTexture(renderer.getTextureId());
-                GlStateManager._pixelStore(GL_UNPACK_ROW_LENGTH, width);
-                for (Rectangle dirtyRect : dirtyRects) {
-                    GlStateManager._pixelStore(GL_UNPACK_SKIP_PIXELS, dirtyRect.x);
-                    GlStateManager._pixelStore(GL_UNPACK_SKIP_ROWS, dirtyRect.y);
-                    renderer.onPaint(buffer, dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
-                }
+                if (!renderer.isTextureReady()) return;
+                renderer.onPaint(buffer, width, height, dirtyRects, 0, 0);
                 if ((popupDrawn || showPopup) && popupSize != null) {
                     // interpret where the popup was as a dirty rect
                     if (!showPopup) {
                         // if the popup is not visible, just draw the contents of the buffer
-                        GlStateManager._pixelStore(GL_UNPACK_SKIP_PIXELS, popupSize.width);
-                        GlStateManager._pixelStore(GL_UNPACK_SKIP_ROWS, popupSize.height);
-                        renderer.onPaint(buffer, popupSize.x, popupSize.y, popupSize.width, popupSize.height);
+                        renderer.onPaint(buffer, width, height,
+                                popupSize.width, popupSize.height,
+                                popupSize.x, popupSize.y,
+                                popupSize.width, popupSize.height);
                         popupGraphics = null;
                         popupSize = null;
                     } else if (popupDrawn) {
                         // else, a use copy of the popup graphics, as it needs to remain visible
                         // and for some reason that I do not for the life of me understand, chromium does not seem to keep this data in memory outside of the paint loop, meaning it has to be copied around, which wastes performance
-                        GlStateManager._pixelStore(GL_UNPACK_ROW_LENGTH, popupSize.width);
-                        GlStateManager._pixelStore(GL_UNPACK_SKIP_PIXELS, 0);
-                        GlStateManager._pixelStore(GL_UNPACK_SKIP_ROWS, 0);
-                        renderer.onPaint(popupGraphics, popupSize.x, popupSize.y, popupSize.width, popupSize.height);
+                        renderer.onPaint(popupGraphics, popupSize.width, popupSize.height,
+                                0, 0,
+                                popupSize.x, popupSize.y,
+                                popupSize.width, popupSize.height);
                     }
                 }
             }
         } else {
-            if (renderer.getTextureId() == 0) return;
-            GlStateManager._bindTexture(renderer.getTextureId());
+            if (!renderer.isTextureReady()) return;
             int start = buffer.capacity();
             int end = 0;
             for (Rectangle dirtyRect : dirtyRects) {
-                GlStateManager._pixelStore(GL_UNPACK_ROW_LENGTH, popupSize.width);
-                GlStateManager._pixelStore(GL_UNPACK_SKIP_PIXELS, dirtyRect.x);
-                GlStateManager._pixelStore(GL_UNPACK_SKIP_ROWS, dirtyRect.y);
-                renderer.onPaint(buffer, popupSize.x + dirtyRect.x, popupSize.y + dirtyRect.y, dirtyRect.width, dirtyRect.height);
+                renderer.onPaint(buffer, popupSize.width, popupSize.height,
+                        dirtyRect.x, dirtyRect.y,
+                        popupSize.x + dirtyRect.x, popupSize.y + dirtyRect.y,
+                        dirtyRect.width, dirtyRect.height);
 
                 int rectStart = (dirtyRect.x + ((dirtyRect.y) * popupSize.width)) << 2;
                 if (rectStart < start) start = rectStart;
