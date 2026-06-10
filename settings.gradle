@@ -4,13 +4,20 @@ pluginManagement {
             name = 'Fabric'
             url = 'https://maven.fabricmc.net/'
         }
+        maven {
+            name = 'NeoForged'
+            url = 'https://maven.neoforged.net/releases'
+        }
         gradlePluginPortal()
     }
 
     plugins {
         id 'fabric-loom' version loom_version
+        id 'net.neoforged.moddev' version moddev_version
     }
 
 }
 
 rootProject.name = 'mcef'
+
+include 'neoforge'

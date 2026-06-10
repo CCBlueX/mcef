@@ -1,0 +1,143 @@
+plugins {
+    id 'net.neoforged.moddev'
+    id 'maven-publish'
+}
+
+static def getCheckedOutGitCommitHash(Project mcefParent) {
+    def gitFolder = "$mcefParent.projectDir/.git/modules/java-cef/"
+    def takeFromHash = 40
+    /*
+     * '.git/HEAD' contains either
+     *      in case of detached head: the currently checked out commit hash
+     *      otherwise: a reference to a file containing the current commit hash
+     */
+    def gitHeadFile = new File(gitFolder + "HEAD")
+    if (gitHeadFile.exists()) {
+        def head = gitHeadFile.text.split(":") // .git/HEAD
+        def isCommit = head.length == 1 // e5a7c79edabbf7dd39888442df081b1c9d8e88fd
+
+        if (isCommit) return head[0].trim().take(takeFromHash) // e5a7c79edabb
+
+        def refHead = new File(gitFolder + head[1].trim()) // .git/refs/heads/master
+        refHead.text.trim().take takeFromHash
+    } else {
+        return ""
+    }
+}
+
+tasks.register('generateJcefCommitFile') {
+    def commitFile = layout.buildDirectory.file("jcef.commit")
+    outputs.file commitFile
+    doLast {
+        def commitHash = getCheckedOutGitCommitHash(rootProject)
+        if (!commitHash.isEmpty()) {
+            commitFile.get().asFile.text = commitHash
+        } else {
+            throw new GradleException("Unable to determine JCEF commit hash.")
+        }
+    }
+}
+
+version = project.mod_version
+group = 'net.ccbluex'
+
+base {
+    archivesName = "${project.archives_base_name}-neoforge"
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+neoForge {
+    version = project.neoforge_version
+}
+
+dependencies {
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "org.lwjgl:lwjgl-egl:3.4.1"
+}
+
+sourceSets {
+    jcef {
+        java {
+            srcDir rootProject.file("java-cef/java")
+            exclude "**/tests/**"
+        }
+    }
+
+    main {
+        java {
+            srcDir rootProject.file("src/main/java")
+        }
+        resources {
+            srcDir rootProject.file("src/main/resources")
+        }
+        compileClasspath += jcef.output
+        runtimeClasspath += jcef.output
+    }
+}
+
+processResources {
+    exclude 'fabric.mod.json'
+
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand 'mod_id': mod_id,
+                'mod_name': mod_name,
+                'mod_vendor': mod_vendor,
+                'mod_version': mod_version,
+                'minecraft_version_range': mod_mc_version_range,
+                'neoforge_version_range': neoforge_version_range
+    }
+
+    inputs.property "version", project.version
+}
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes(['Specification-Title'     : "${archives_base_name}-neoforge",
+                    'Specification-Vendor'    : group,
+                    'Specification-Version'   : "1",
+                    'Implementation-Title'    : "${archives_base_name}-neoforge",
+                    'Implementation-Version'  : mod_version,
+                    'Implementation-Vendor'   : group,
+                    'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                    'java-cef-commit'         : getCheckedOutGitCommitHash(rootProject)
+        ])
+    }
+    from sourceSets.jcef.output
+    from(rootProject.file("LICENSE")) {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+    from tasks.named('generateJcefCommitFile')
+}
+
+java {
+    withSourcesJar()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifactId = "${project.archives_base_name}-neoforge"
+            from components.java
+        }
+    }
+
+    repositories {
+        maven {
+            name = "ccbluex-maven"
+            def isSnapshot = version.toString().endsWith("-SNAPSHOT")
+            url = isSnapshot ? uri("https://maven.ccbluex.net/snapshots") : uri("https://maven.ccbluex.net/releases")
+            credentials {
+                username = System.getenv("MAVEN_TOKEN_NAME")
+                password = System.getenv("MAVEN_TOKEN_SECRET")
+            }
+            authentication {
+                basic(BasicAuthentication)
+            }
+        }
+    }
+}
