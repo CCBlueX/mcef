@@ -54,6 +54,16 @@ public final class MCEFAccelerationSupport {
             return support;
         }
 
+        var device = RenderSystem.getDevice();
+        var backendName = device.getDeviceInfo().backendName();
+        if (!"OpenGL".equals(backendName)) {
+            MCEF.INSTANCE.LOGGER.warn(
+                "GPU acceleration only supports the OpenGL backend. Current backend: {}",
+                backendName
+            );
+            return cachedSupport = Support.UNSUPPORTED;
+        }
+
         cachedSupport = switch (MCEFPlatform.getPlatform()) {
             case WINDOWS_AMD64, WINDOWS_ARM64 -> checkWindowsSupport();
             case LINUX_AMD64, LINUX_ARM64 -> checkLinuxSupport();
