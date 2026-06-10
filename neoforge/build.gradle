@@ -45,6 +45,19 @@ base {
     archivesName = "${project.archives_base_name}-neoforge"
 }
 
+// If NeoForge lags behind after a Minecraft update, it must not break the Fabric
+// build or its publishing: disable this module's tasks while the versions do not match.
+def neoForgeMinecraftVersion = neoforge_version.tokenize('.').take(3).join('.')
+def paddedMinecraftVersion = (minecraft_version.tokenize('.') + ['0', '0']).take(3).join('.')
+
+if (neoForgeMinecraftVersion != paddedMinecraftVersion) {
+    logger.warn("NeoForge ${neoforge_version} targets Minecraft ${neoForgeMinecraftVersion}, but the " +
+            "project is on Minecraft ${minecraft_version}. The neoforge tasks are disabled " +
+            "until a matching NeoForge version is available.")
+
+    tasks.configureEach { enabled = false }
+}
+
 repositories {
     mavenCentral()
     mavenLocal()
@@ -57,6 +70,12 @@ neoForge {
 dependencies {
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
     implementation "org.lwjgl:lwjgl-egl:3.4.1"
+}
+
+// NeoForge 26.1 requires Java 25, so this artifact targets a newer level than
+// the Fabric artifact (Java 21)
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
 }
 
 sourceSets {
@@ -92,6 +111,8 @@ processResources {
     }
 
     inputs.property "version", project.version
+    inputs.property "minecraft_version_range", mod_mc_version_range
+    inputs.property "neoforge_version_range", neoforge_version_range
 }
 
 jar {

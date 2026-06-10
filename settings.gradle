@@ -7,6 +7,9 @@ pluginManagement {
         maven {
             name = 'NeoForged'
             url = 'https://maven.neoforged.net/releases'
+            content {
+                includeGroupAndSubgroups 'net.neoforged'
+            }
         }
         gradlePluginPortal()
     }
