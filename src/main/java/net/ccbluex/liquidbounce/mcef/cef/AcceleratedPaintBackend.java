@@ -17,7 +17,7 @@ import org.jspecify.annotations.Nullable;
 
 @NullMarked
 sealed interface AcceleratedPaintBackend extends AutoCloseable
-        permits LinuxAcceleratedPaintBackend, WindowsAcceleratedPaintBackend {
+        permits LinuxAcceleratedPaintBackend, MacAcceleratedPaintBackend, WindowsAcceleratedPaintBackend {
 
     boolean accepts(CefAcceleratedPaintInfo info);
 

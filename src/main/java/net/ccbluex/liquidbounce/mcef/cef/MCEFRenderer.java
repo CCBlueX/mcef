@@ -62,7 +62,8 @@ public class MCEFRenderer implements Closeable {
     private boolean textureRegistered = false;
     private final List<AcceleratedPaintBackend> acceleratedPaintBackends = List.of(
             new WindowsAcceleratedPaintBackend(),
-            new LinuxAcceleratedPaintBackend()
+            new LinuxAcceleratedPaintBackend(),
+            new MacAcceleratedPaintBackend()
     );
 
     private boolean isBGRA = false;

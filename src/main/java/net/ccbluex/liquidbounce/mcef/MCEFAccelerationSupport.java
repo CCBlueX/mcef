@@ -26,6 +26,7 @@ import java.util.Locale;
 
 import net.ccbluex.liquidbounce.mcef.utils.EglUtils;
 import org.lwjgl.egl.EGL14;
+import org.lwjgl.opengl.CGL;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 
@@ -56,6 +57,7 @@ public final class MCEFAccelerationSupport {
         cachedSupport = switch (MCEFPlatform.getPlatform()) {
             case WINDOWS_AMD64, WINDOWS_ARM64 -> checkWindowsSupport();
             case LINUX_AMD64, LINUX_ARM64 -> checkLinuxSupport();
+            case MACOS_AMD64, MACOS_ARM64 -> checkMacOSSupport();
             default -> Support.UNSUPPORTED;
         };
 
@@ -140,6 +142,28 @@ public final class MCEFAccelerationSupport {
             return new Support(true, false);
         } catch (Exception e) {
             MCEF.INSTANCE.LOGGER.warn("Failed to check Linux GPU acceleration support: {}", e.getMessage());
+            return Support.UNSUPPORTED;
+        }
+    }
+
+    private static Support checkMacOSSupport() {
+        try {
+            RenderSystem.assertOnRenderThread();
+
+            if (CGL.CGLGetCurrentContext() == 0L) {
+                MCEF.INSTANCE.LOGGER.warn("No current CGL context available for macOS accelerated paint.");
+                return Support.UNSUPPORTED;
+            }
+
+            var capabilities = GL.getCapabilities();
+            if (!capabilities.OpenGL31 && !capabilities.GL_ARB_texture_rectangle) {
+                MCEF.INSTANCE.LOGGER.warn("GL_TEXTURE_RECTANGLE is not available for macOS accelerated paint.");
+                return Support.UNSUPPORTED;
+            }
+
+            return new Support(true, true);
+        } catch (Throwable e) {
+            MCEF.INSTANCE.LOGGER.warn("Failed to check macOS GPU acceleration support: {}", e.getMessage());
             return Support.UNSUPPORTED;
         }
     }
