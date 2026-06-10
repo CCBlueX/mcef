@@ -26,21 +26,34 @@ package net.ccbluex.liquidbounce.mcef;
  * @param enabled enables multipart downloads when the server supports byte ranges
  * @param maxConcurrency maximum number of concurrent range requests
  * @param minPartSizeBytes minimum target size for each multipart range
+ * @param maxPartRetries maximum retry attempts for an interrupted multipart range request
+ * @param retryBackoffMillis delay before retrying an interrupted multipart range request
  */
-public record MultiPartDownloadConfig(boolean enabled, int maxConcurrency, long minPartSizeBytes) {
+public record MultiPartDownloadConfig(boolean enabled, int maxConcurrency, long minPartSizeBytes, int maxPartRetries,
+                                      long retryBackoffMillis) {
 
     public static final long DEFAULT_MIN_PART_SIZE_BYTES = 8L * 1024L * 1024L;
     public static final int DEFAULT_MAX_CONCURRENCY = 8;
+    public static final int DEFAULT_MAX_PART_RETRIES = 3;
+    public static final long DEFAULT_RETRY_BACKOFF_MILLIS = 500L;
     public static final MultiPartDownloadConfig DEFAULT = new MultiPartDownloadConfig(
             true,
             DEFAULT_MAX_CONCURRENCY,
-            DEFAULT_MIN_PART_SIZE_BYTES
+            DEFAULT_MIN_PART_SIZE_BYTES,
+            DEFAULT_MAX_PART_RETRIES,
+            DEFAULT_RETRY_BACKOFF_MILLIS
     );
     public static final MultiPartDownloadConfig DISABLED = new MultiPartDownloadConfig(
             false,
             DEFAULT_MAX_CONCURRENCY,
-            DEFAULT_MIN_PART_SIZE_BYTES
+            DEFAULT_MIN_PART_SIZE_BYTES,
+            DEFAULT_MAX_PART_RETRIES,
+            DEFAULT_RETRY_BACKOFF_MILLIS
     );
+
+    public MultiPartDownloadConfig(boolean enabled, int maxConcurrency, long minPartSizeBytes) {
+        this(enabled, maxConcurrency, minPartSizeBytes, DEFAULT_MAX_PART_RETRIES, DEFAULT_RETRY_BACKOFF_MILLIS);
+    }
 
     public MultiPartDownloadConfig {
         if (maxConcurrency < 1) {
@@ -48,6 +61,12 @@ public record MultiPartDownloadConfig(boolean enabled, int maxConcurrency, long 
         }
         if (minPartSizeBytes < 1L) {
             throw new IllegalArgumentException("minPartSizeBytes must be at least 1");
+        }
+        if (maxPartRetries < 0) {
+            throw new IllegalArgumentException("maxPartRetries must be non-negative");
+        }
+        if (retryBackoffMillis < 0L) {
+            throw new IllegalArgumentException("retryBackoffMillis must be non-negative");
         }
     }
 

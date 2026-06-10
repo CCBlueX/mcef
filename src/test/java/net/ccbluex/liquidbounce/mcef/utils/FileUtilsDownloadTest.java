@@ -140,6 +140,49 @@ class FileUtilsDownloadTest {
     }
 
     @Test
+    void downloadFileRetriesInterruptedPartRange() throws Exception {
+        var config = new MultiPartDownloadConfig(true, 3, 1024L * 1024L, 2, 0L);
+
+        var data = createData(8 * 1024 * 1024);
+        var handler = new DownloadHandler(data, true, false, false, 1, 256 * 1024);
+        server = createServer(handler);
+
+        var outputFile = tempDirectory.resolve("interrupted-range.bin").toFile();
+        var listener = new RecordingProgressListener(data.length);
+
+        FileUtils.downloadFile(listener, "interrupted-range", serverUrl(), outputFile, config);
+
+        assertArrayEquals(data, Files.readAllBytes(outputFile.toPath()));
+        assertEquals(1, handler.headRequests.get());
+        assertEquals(5, handler.partialRequests.get());
+        assertEquals(0, handler.wholeRequests.get());
+        assertEquals(1, handler.transientPartialFailures.get());
+        assertEquals(data.length, listener.doneBytes.get());
+        assertEquals(data.length, listener.doneContentLength.get());
+    }
+
+    @Test
+    void downloadFileFailsWhenInterruptedPartRangeExceedsRetryLimit() throws Exception {
+        var config = new MultiPartDownloadConfig(true, 3, 1024L * 1024L, 1, 0L);
+
+        var data = createData(8 * 1024 * 1024);
+        var handler = new DownloadHandler(data, true, false, false, 2, 256 * 1024);
+        server = createServer(handler);
+
+        var outputFile = tempDirectory.resolve("interrupted-range-fails.bin").toFile();
+        var listener = new RecordingProgressListener(data.length);
+
+        assertThrows(IOException.class, () ->
+                FileUtils.downloadFile(listener, "interrupted-range-fails", serverUrl(), outputFile, config));
+
+        assertFalse(outputFile.exists());
+        assertEquals(1, handler.headRequests.get());
+        assertTrue(handler.partialRequests.get() >= 5);
+        assertEquals(0, handler.wholeRequests.get());
+        assertEquals(2, handler.transientPartialFailures.get());
+    }
+
+    @Test
     void downloadFileFallsBackWhenMultiPartIsDisabledByConfig() throws Exception {
         var config = new MultiPartDownloadConfig(false, 8, 1024L * 1024L);
 
@@ -200,9 +243,13 @@ class FileUtilsDownloadTest {
         private final boolean rangeSupported;
         private final boolean mismatchedPartContentRange;
         private final boolean failHeadRequest;
+        private final int transientPartialFailureLimit;
+        private final int transientPartialFailureBytes;
         private final AtomicInteger headRequests = new AtomicInteger();
         private final AtomicInteger partialRequests = new AtomicInteger();
         private final AtomicInteger wholeRequests = new AtomicInteger();
+        private final AtomicInteger transientPartialFailures = new AtomicInteger();
+        private final AtomicInteger transientFailurePartEnd = new AtomicInteger(-1);
 
         private DownloadHandler(byte[] data, boolean rangeSupported) {
             this(data, rangeSupported, false, false);
@@ -213,10 +260,17 @@ class FileUtilsDownloadTest {
         }
 
         private DownloadHandler(byte[] data, boolean rangeSupported, boolean mismatchedPartContentRange, boolean failHeadRequest) {
+            this(data, rangeSupported, mismatchedPartContentRange, failHeadRequest, 0, 0);
+        }
+
+        private DownloadHandler(byte[] data, boolean rangeSupported, boolean mismatchedPartContentRange, boolean failHeadRequest,
+                                int transientPartialFailureLimit, int transientPartialFailureBytes) {
             this.data = data;
             this.rangeSupported = rangeSupported;
             this.mismatchedPartContentRange = mismatchedPartContentRange;
             this.failHeadRequest = failHeadRequest;
+            this.transientPartialFailureLimit = transientPartialFailureLimit;
+            this.transientPartialFailureBytes = transientPartialFailureBytes;
         }
 
         @Override
@@ -256,8 +310,42 @@ class FileUtilsDownloadTest {
             exchange.getResponseHeaders().set("Content-Length", Integer.toString(length));
             exchange.getResponseHeaders().add("Content-Range", "bytes " + responseStart + "-" + responseEnd + "/" + data.length);
             exchange.sendResponseHeaders(206, length);
+
+            if (shouldFailTransiently(end)) {
+                exchange.getResponseBody().write(data, start, Math.min(length, transientPartialFailureBytes));
+                exchange.close();
+                return;
+            }
+
             exchange.getResponseBody().write(data, start, length);
             exchange.close();
+        }
+
+        private boolean shouldFailTransiently(int end) {
+            if (transientPartialFailureLimit <= 0 || end == 0) {
+                return false;
+            }
+
+            while (true) {
+                var selectedPartEnd = transientFailurePartEnd.get();
+                if (selectedPartEnd == -1) {
+                    if (!transientFailurePartEnd.compareAndSet(-1, end)) {
+                        continue;
+                    }
+                    selectedPartEnd = end;
+                }
+                if (selectedPartEnd != end) {
+                    return false;
+                }
+
+                var failures = transientPartialFailures.get();
+                if (failures >= transientPartialFailureLimit) {
+                    return false;
+                }
+                if (transientPartialFailures.compareAndSet(failures, failures + 1)) {
+                    return true;
+                }
+            }
         }
 
         private void respondWhole(HttpExchange exchange) throws IOException {

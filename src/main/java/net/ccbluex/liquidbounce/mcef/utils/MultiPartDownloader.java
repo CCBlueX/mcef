@@ -386,63 +386,111 @@ final class MultiPartDownloader {
 
         @Override
         public Void call() throws IOException {
-            var request = new Request.Builder()
-                    .url(url)
-                    .header(ACCEPT_ENCODING, "identity")
-                    .header(RANGE, String.format(Locale.ROOT, "bytes=%d-%d", part.start(), part.end()))
-                    .get()
-                    .build();
+            long confirmedBytes = 0L;
+            int retries = 0;
 
-            try (var response = client.newCall(request).execute()) {
-                if (response.code() != HTTP_PARTIAL_CONTENT) {
-                    throw new IOException(String.format(Locale.ROOT,
-                            "Part download failed: range=%d-%d, HTTP Status=%d %s",
-                            part.start(), part.end(), response.code(), response.message()));
-                }
-                validateContentRange(response);
+            while (confirmedBytes < part.length()) {
+                var rangeStart = part.start() + confirmedBytes;
+                try {
+                    confirmedBytes += downloadRange(rangeStart, part.end(), confirmedBytes);
+                } catch (RetryablePartDownloadException e) {
+                    confirmedBytes += e.bytesRead();
+                    reporter.update(part.index(), confirmedBytes, false);
 
-                try (var source = response.body().source()) {
-                    copyPart(source, channel);
+                    if (confirmedBytes >= part.length()) {
+                        break;
+                    }
+                    if (retries >= config.maxPartRetries()) {
+                        throw new IOException(String.format(Locale.ROOT,
+                                "Part download failed after %d retries: range=%d-%d, remaining=%d-%d",
+                                retries, part.start(), part.end(), part.start() + confirmedBytes, part.end()), e);
+                    }
+
+                    retries++;
+                    logInfo("Retrying multipart range for task part {}: range={}-{}, retry={}/{}",
+                            part.index(), part.start() + confirmedBytes, part.end(), retries, config.maxPartRetries());
+                    sleepBeforeRetry();
                 }
             }
 
+            reporter.update(part.index(), part.length(), true);
             return null;
         }
 
-        private void validateContentRange(Response response) throws IOException {
-            var contentRange = parseContentRange(response.header(CONTENT_RANGE));
-            if (contentRange == null
-                    || contentRange.start() != part.start()
-                    || contentRange.end() != part.end()
-                    || (contentRange.total() != null && contentRange.total() != totalLength)) {
-                throw new IOException(String.format(Locale.ROOT,
-                        "Part content range mismatch: expected=bytes %d-%d/%d, actual=%s",
-                        part.start(), part.end(), totalLength, response.header(CONTENT_RANGE)));
+        private long downloadRange(long rangeStart, long rangeEnd, long confirmedBytesBeforeRange) throws IOException {
+            var request = new Request.Builder()
+                    .url(url)
+                    .header(ACCEPT_ENCODING, "identity")
+                    .header(RANGE, String.format(Locale.ROOT, "bytes=%d-%d", rangeStart, rangeEnd))
+                    .get()
+                    .build();
+
+            try (var response = executeRequest(request)) {
+                if (response.code() != HTTP_PARTIAL_CONTENT) {
+                    throw new IOException(String.format(Locale.ROOT,
+                            "Part download failed: range=%d-%d, HTTP Status=%d %s",
+                            rangeStart, rangeEnd, response.code(), response.message()));
+                }
+                validateContentRange(response, rangeStart, rangeEnd);
+
+                try (var source = response.body().source()) {
+                    return copyPart(source, channel, rangeStart, confirmedBytesBeforeRange, rangeEnd - rangeStart + 1L);
+                }
             }
         }
 
-        private void copyPart(BufferedSource source, FileChannel channel) throws IOException {
+        private Response executeRequest(Request request) throws IOException {
+            try {
+                return client.newCall(request).execute();
+            } catch (IOException e) {
+                throw new RetryablePartDownloadException(0L, e);
+            }
+        }
+
+        private void validateContentRange(Response response, long rangeStart, long rangeEnd) throws IOException {
+            var contentRange = parseContentRange(response.header(CONTENT_RANGE));
+            if (contentRange == null
+                    || contentRange.start() != rangeStart
+                    || contentRange.end() != rangeEnd
+                    || (contentRange.total() != null && contentRange.total() != totalLength)) {
+                throw new IOException(String.format(Locale.ROOT,
+                        "Part content range mismatch: expected=bytes %d-%d/%d, actual=%s",
+                        rangeStart, rangeEnd, totalLength, response.header(CONTENT_RANGE)));
+            }
+        }
+
+        private long copyPart(BufferedSource source, FileChannel channel, long rangeStart, long confirmedBytesBeforeRange,
+                              long expectedLength) throws IOException {
             var buffer = new byte[COPY_BUFFER_SIZE];
             long bytesRead = 0L;
             int read;
 
-            while ((read = readChunk(source, buffer)) != -1) {
+            while ((read = readChunkOrRetry(source, buffer, bytesRead)) != -1) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new IOException("Part download interrupted");
                 }
 
-                writeFully(channel, buffer, read, part.start() + bytesRead);
+                writeFully(channel, buffer, read, rangeStart + bytesRead);
                 bytesRead += read;
-                reporter.update(part.index(), bytesRead, false);
+                reporter.update(part.index(), confirmedBytesBeforeRange + bytesRead, false);
             }
 
-            if (bytesRead != part.length()) {
-                throw new IOException(String.format(Locale.ROOT,
+            if (bytesRead != expectedLength) {
+                throw new RetryablePartDownloadException(bytesRead, new IOException(String.format(Locale.ROOT,
                         "Part length mismatch: range=%d-%d, expected=%d, actual=%d",
-                        part.start(), part.end(), part.length(), bytesRead));
+                        rangeStart, rangeStart + expectedLength - 1L, expectedLength, bytesRead)));
             }
 
-            reporter.update(part.index(), bytesRead, true);
+            reporter.update(part.index(), confirmedBytesBeforeRange + bytesRead, true);
+            return bytesRead;
+        }
+
+        private int readChunkOrRetry(BufferedSource source, byte[] buffer, long bytesRead) throws IOException {
+            try {
+                return readChunk(source, buffer);
+            } catch (IOException e) {
+                throw new RetryablePartDownloadException(bytesRead, e);
+            }
         }
 
         private int readChunk(BufferedSource source, byte[] buffer) throws IOException {
@@ -468,6 +516,32 @@ final class MultiPartDownloader {
             while (byteBuffer.hasRemaining()) {
                 position += channel.write(byteBuffer, position);
             }
+        }
+
+        private void sleepBeforeRetry() throws IOException {
+            if (config.retryBackoffMillis() == 0L) {
+                return;
+            }
+
+            try {
+                Thread.sleep(config.retryBackoffMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Part download interrupted before retry", e);
+            }
+        }
+    }
+
+    private static final class RetryablePartDownloadException extends IOException {
+        private final long bytesRead;
+
+        private RetryablePartDownloadException(long bytesRead, IOException cause) {
+            super(cause.getMessage(), cause);
+            this.bytesRead = bytesRead;
+        }
+
+        private long bytesRead() {
+            return bytesRead;
         }
     }
 
