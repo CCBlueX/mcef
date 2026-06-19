@@ -12,7 +12,6 @@
 package net.ccbluex.liquidbounce.mcef.cef;
 
 import com.mojang.blaze3d.opengl.GlStateManager;
-import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import net.ccbluex.liquidbounce.mcef.MCEF;
 import org.cef.handler.CefAcceleratedPaintInfo;
 import org.cef.handler.CefAcceleratedPaintInfoWin;
@@ -26,12 +25,7 @@ import static org.lwjgl.opengl.GL11.*;
 
 @NullMarked
 final class WindowsAcceleratedPaintBackend implements AcceleratedPaintBackend {
-    private static final int SHARED_TEXTURE_CACHE_LIMIT = 4;
     private static final long SHARED_TEXTURE_IMPORT_SIZE = 0L;
-
-    private @Nullable MCEFDirectTexture activeSourceTexture;
-    private final Long2ObjectLinkedOpenHashMap<SharedTextureEntry> sharedTextureCache =
-            new Long2ObjectLinkedOpenHashMap<>(SHARED_TEXTURE_CACHE_LIMIT);
 
     @Override
     public boolean accepts(CefAcceleratedPaintInfo info) {
@@ -46,39 +40,19 @@ final class WindowsAcceleratedPaintBackend implements AcceleratedPaintBackend {
             return null;
         }
 
-        var cachedTexture = sharedTextureCache.getAndMoveToLast(winInfo.shared_texture_handle);
-        if (cachedTexture != null) {
-            if (cachedTexture.matches(width, height)) {
-                activeSourceTexture = cachedTexture.directTexture;
-                return new AcceleratedPaintFrame(cachedTexture.directTexture.getTexture(), true, null);
-            }
-
-            sharedTextureCache.remove(winInfo.shared_texture_handle);
-            cachedTexture.close();
-        }
-
         var importedTexture = importSharedTexture(winInfo.shared_texture_handle, width, height);
         if (importedTexture == null) {
             return null;
         }
 
-        sharedTextureCache.putAndMoveToLast(winInfo.shared_texture_handle, importedTexture);
-        trimSharedTextureCache();
-        activeSourceTexture = importedTexture.directTexture;
-        return new AcceleratedPaintFrame(importedTexture.directTexture.getTexture(), true, null);
+        return new AcceleratedPaintFrame(importedTexture.getTexture(), true, importedTexture::close);
     }
 
     @Override
     public void close() {
-        activeSourceTexture = null;
-
-        for (var entry : sharedTextureCache.values()) {
-            entry.close();
-        }
-        sharedTextureCache.clear();
     }
 
-    private @Nullable SharedTextureEntry importSharedTexture(long sharedTextureHandle, int width, int height) {
+    private @Nullable MCEFDirectTexture importSharedTexture(long sharedTextureHandle, int width, int height) {
         var sharedTextureId = glGenTextures();
 
         var memoryObject = glCreateMemoryObjectsEXT();
@@ -128,41 +102,7 @@ final class WindowsAcceleratedPaintBackend implements AcceleratedPaintBackend {
 
         var directTexture = new MCEFDirectTexture();
         directTexture.setOwnedDirectTextureId(sharedTextureId, width, height);
-        return new SharedTextureEntry(width, height, directTexture);
-    }
-
-    private void trimSharedTextureCache() {
-        while (sharedTextureCache.size() > SHARED_TEXTURE_CACHE_LIMIT) {
-            long eldestHandle = sharedTextureCache.firstLongKey();
-            var evictedEntry = sharedTextureCache.get(eldestHandle);
-            if (evictedEntry == null) {
-                return;
-            }
-
-            if (evictedEntry.directTexture == activeSourceTexture) {
-                sharedTextureCache.getAndMoveToLast(eldestHandle);
-                continue;
-            }
-
-            sharedTextureCache.remove(eldestHandle);
-            evictedEntry.close();
-        }
-    }
-
-    private record SharedTextureEntry(
-            int width,
-            int height,
-            MCEFDirectTexture directTexture
-    ) implements AutoCloseable {
-
-        private boolean matches(int width, int height) {
-            return this.width == width && this.height == height;
-        }
-
-        @Override
-        public void close() {
-            this.directTexture.close();
-        }
+        return directTexture;
     }
 
 }
