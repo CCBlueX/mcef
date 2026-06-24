@@ -247,6 +247,9 @@ public class MCEFDownloadManager {
             throw new IOException("Failed to extract JCEF", e);
         }
 
+        // Validate that the extracted binary matches the current system architecture
+        validateExtractedBinaryArchitecture(platformDirectory);
+
         if (tarGzArchive.exists() && !FileUtils.deleteQuietly(tarGzArchive)) {
             try {
                 FileUtils.forceDeleteOnExit(tarGzArchive);
@@ -327,7 +330,58 @@ public class MCEFDownloadManager {
         }
     }
 
-    public void unregisterProgressListener(MCEFProgressListener listener) {
+    /**
+     * Validates that the extracted libcef.so binary matches the architecture of the current platform.
+     * This guards against server-side packaging errors where the wrong binary is served
+     * (e.g. an x86_64 binary is placed in the linux_arm64 directory).
+     *
+     * @see <a href="https://github.com/CCBlueX/LiquidBounce/issues/8412">Issue #8412</a>
+     */
+    private void validateExtractedBinaryArchitecture(File platformDirectory) throws IOException {
+        if (!platform.isLinux()) return;
+
+        var libcef = new File(platformDirectory, "libcef.so");
+        if (!libcef.exists()) {
+            MCEF.INSTANCE.getLogger().warn("libcef.so not found in {}, skipping architecture validation", platformDirectory);
+            return;
+        }
+
+        // ELF header byte 18-19: e_machine field (little-endian)
+        // 0x3E = x86_64, 0xB7 = aarch64
+        try (var fis = new java.io.FileInputStream(libcef)) {
+            var header = new byte[20];
+            if (fis.read(header) < 20) {
+                MCEF.INSTANCE.getLogger().warn("libcef.so is too small to read ELF header, skipping validation");
+                return;
+            }
+
+            // ELF magic check: 0x7F 'E' 'L' 'F'
+            if (header[0] != 0x7F || header[1] != 'E' || header[2] != 'L' || header[3] != 'F') {
+                MCEF.INSTANCE.getLogger().warn("libcef.so does not have a valid ELF magic number, skipping validation");
+                return;
+            }
+
+            int eMachine = (header[19] & 0xFF) << 8 | (header[18] & 0xFF);
+            boolean isAmd64Binary = eMachine == 0x3E;
+            boolean isArm64Binary = eMachine == 0xB7;
+            boolean needsAmd64   = platform == MCEFPlatform.LINUX_AMD64;
+            boolean needsArm64   = platform == MCEFPlatform.LINUX_ARM64;
+
+            if ((needsAmd64 && isArm64Binary) || (needsArm64 && isAmd64Binary)) {
+                throw new IOException(
+                    "Architecture mismatch in downloaded libcef.so: " +
+                    "binary is " + (isAmd64Binary ? "x86_64" : "aarch64") +
+                    " but this system requires " + (needsAmd64 ? "x86_64" : "aarch64") +
+                    ". This is likely a server-side packaging error. Please report this to CCBlueX."
+                );
+            }
+
+            MCEF.INSTANCE.getLogger().info("libcef.so architecture validated successfully: {}",
+                isAmd64Binary ? "x86_64" : isArm64Binary ? "aarch64" : "unknown (e_machine=0x" + Integer.toHexString(eMachine) + ")");
+        }
+    }
+
+        public void unregisterProgressListener(MCEFProgressListener listener) {
         progressListeners.remove(listener);
     }
 
