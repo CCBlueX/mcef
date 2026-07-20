@@ -1,3 +1,4 @@
 [submodule "java-cef"]
 	path = java-cef
 	url = https://github.com/CCBlueX/java-cef.git
+	branch = main
