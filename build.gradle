@@ -62,8 +62,9 @@ dependencies {
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
     implementation "org.lwjgl:lwjgl-egl:3.4.1"
 
-    testImplementation "org.junit.jupiter:junit-jupiter:6.0.3"
-    testRuntimeOnly "org.junit.platform:junit-platform-launcher:6.0.3"
+    def junitVersion = "6.1.2"
+    testImplementation "org.junit.jupiter:junit-jupiter:$junitVersion"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:$junitVersion"
 }
 
 sourceSets {
