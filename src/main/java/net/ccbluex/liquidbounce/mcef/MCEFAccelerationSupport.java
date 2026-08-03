@@ -26,6 +26,7 @@ import java.util.Locale;
 
 import net.ccbluex.liquidbounce.mcef.utils.EglUtils;
 import org.lwjgl.egl.EGL14;
+import org.lwjgl.glfw.GLFW;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 
@@ -136,6 +137,20 @@ public final class MCEFAccelerationSupport {
                 MCEF.INSTANCE.LOGGER.warn("Required EGL extensions for GPU acceleration not supported");
                 return Support.UNSUPPORTED;
             }
+
+            /**
+             * Do not permit the user to use Accelerated Paint if on NVIDIA + Wayland
+             **/
+
+            var vendor = GL11.glGetString(GL11.GL_VENDOR);
+            var renderer = GL11.glGetString(GL11.GL_RENDERER);
+
+            if(isNvidiaGpu(vendor == null ? "" : vendor, renderer == null ? "" : renderer)
+                    && GLFW.glfwGetPlatform() == GLFW.GLFW_PLATFORM_WAYLAND){
+                MCEF.INSTANCE.LOGGER.warn("Unable to enable due to NVIDIA running under Wayland (Unsupported Configuration)");
+                return Support.UNSUPPORTED;
+            }
+
 
             return new Support(true, false);
         } catch (Exception e) {
