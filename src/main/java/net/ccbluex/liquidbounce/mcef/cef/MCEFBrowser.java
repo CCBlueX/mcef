@@ -21,10 +21,12 @@
 
 package net.ccbluex.liquidbounce.mcef.cef;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.ccbluex.liquidbounce.mcef.MCEF;
 import net.ccbluex.liquidbounce.mcef.MCEFPlatform;
-import net.ccbluex.liquidbounce.mcef.glfw.MCEFGlfwCursorHelper;
+import net.ccbluex.liquidbounce.mcef.cursor.MCEFCursorHelper;
 import net.ccbluex.liquidbounce.mcef.listeners.MCEFCursorChangeListener;
+import net.minecraft.client.input.InputQuirks;
 import net.minecraft.resources.Identifier;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefBrowserOsr;
@@ -34,14 +36,14 @@ import org.cef.event.CefMouseEvent;
 import org.cef.event.CefMouseWheelEvent;
 import org.cef.handler.CefAcceleratedPaintInfo;
 import org.cef.misc.CefCursorType;
-import org.lwjgl.glfw.GLFW;
 import org.lwjgl.system.MemoryUtil;
 
 import java.awt.*;
 import java.nio.ByteBuffer;
 
 import static net.ccbluex.liquidbounce.mcef.MCEF.mc;
-import static org.lwjgl.glfw.GLFW.*;
+import static org.lwjgl.glfw.GLFW.GLFW_PRESS;
+import static org.lwjgl.glfw.GLFW.GLFW_RELEASE;
 
 /**
  * An instance of an "Off-screen rendered" Chromium web browser.
@@ -267,7 +269,7 @@ public class MCEFBrowser extends CefBrowserOsr {
 
     // Inputs
     public void sendKeyPress(int keyCode, long scanCode, int modifiers) {
-        if (modifiers == GLFW_MOD_CONTROL && keyCode == GLFW_KEY_R) {
+        if (isControlOrCommand(modifiers) && keyCode == InputConstants.KEY_R) {
             reload();
             return;
         }
@@ -278,7 +280,7 @@ public class MCEFBrowser extends CefBrowserOsr {
     }
 
     public void sendKeyRelease(int keyCode, long scanCode, int modifiers) {
-        if (modifiers == GLFW_MOD_CONTROL && keyCode == GLFW_KEY_R) {
+        if (isControlOrCommand(modifiers) && keyCode == InputConstants.KEY_R) {
             return;
         }
 
@@ -288,7 +290,7 @@ public class MCEFBrowser extends CefBrowserOsr {
     }
 
     public void sendKeyTyped(char c, int modifiers) {
-        if (modifiers == GLFW_MOD_CONTROL && (int) c == GLFW_KEY_R) {
+        if (isControlOrCommand(modifiers) && Character.toLowerCase(c) == 'r') {
             return;
         }
 
@@ -432,12 +434,14 @@ public class MCEFBrowser extends CefBrowserOsr {
     }
 
     public void setCursor(CefCursorType cursorType) {
-        var windowHandle = mc.getWindow().handle();
-
         // We do not want to change the cursor state since Minecraft does this for us.
         if (cursorType == CefCursorType.NONE) return;
 
-        GLFW.glfwSetCursor(windowHandle, MCEFGlfwCursorHelper.getGLFWCursorHandle(cursorType));
+        MCEFCursorHelper.getCursorType(cursorType).select(mc.getWindow());
+    }
+
+    private boolean isControlOrCommand(int modifiers) {
+        return modifiers == (InputQuirks.REPLACE_CTRL_KEY_WITH_CMD_KEY ? InputConstants.MOD_SUPER : InputConstants.MOD_CONTROL);
     }
 
     /**

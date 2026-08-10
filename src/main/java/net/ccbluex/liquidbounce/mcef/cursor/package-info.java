@@ -1,7 +1,6 @@
 /*
  * MCEF (Minecraft Chromium Embedded Framework)
  * Copyright (C) 2025 CCBlueX
- * Copyright (C) 2023 CinemaMod Group
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -19,23 +18,7 @@
  * USA
  */
 
-package net.ccbluex.liquidbounce.mcef.glfw;
+@NullMarked
+package net.ccbluex.liquidbounce.mcef.cursor;
 
-import org.cef.misc.CefCursorType;
-import org.lwjgl.glfw.GLFW;
-
-import java.util.EnumMap;
-import java.util.Map;
-
-public class MCEFGlfwCursorHelper {
-
-    private static final Map<CefCursorType, Long> CEF_TO_GLFW_CURSORS = new EnumMap<>(CefCursorType.class);
-
-    /**
-     * Helper method to get a GLFW cursor handle for the given {@link CefCursorType} cursor type
-     */
-    public static long getGLFWCursorHandle(CefCursorType cursorType) {
-        return CEF_TO_GLFW_CURSORS.computeIfAbsent(cursorType, k -> GLFW.glfwCreateStandardCursor(k.glfwId));
-    }
-
-}
+import org.jspecify.annotations.NullMarked;
