@@ -21,10 +21,11 @@
 
 package net.ccbluex.liquidbounce.mcef;
 
+import com.sun.jna.platform.win32.Advapi32Util;
+import com.sun.jna.platform.win32.WinReg;
 import net.minecraft.util.Util;
-import okio.Okio;
+import org.jspecify.annotations.Nullable;
 
-import java.io.IOException;
 import java.util.Locale;
 
 public enum MCEFPlatform {
@@ -117,67 +118,16 @@ public enum MCEFPlatform {
         }
     }
 
-    private static String getWindowsBuildNumber() {
-        var cmdArray = new String[]{"powershell.exe", "-Command", "\"[System.Environment]::OSVersion.Version.Build\""};
-
-        Process process = null;
+    private static @Nullable String getWindowsBuildNumber() {
         try {
-            process = new ProcessBuilder(cmdArray).redirectErrorStream(true).start();
-            try (var source = Okio.buffer(Okio.source(process.getInputStream()))) {
-                String result = source.readUtf8().trim();
-
-                int exitCode = process.waitFor();
-                if (exitCode != 0) {
-                    MCEF.INSTANCE.getLogger().error("PS system environment command exit code: {}", exitCode);
-                }
-
-                if (result.isEmpty()) {
-                    result = getWmicBuildNumber();
-                }
-
-                process.waitFor(); // Wait for process to complete
-                return result;
-            }
-        } catch (IOException | InterruptedException e) {
-            MCEF.INSTANCE.getLogger().error("Failed to execute command to get Windows build number", e);
+            return Advapi32Util.registryGetStringValue(
+                    WinReg.HKEY_LOCAL_MACHINE,
+                    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                    "CurrentBuildNumber"
+            );
+        } catch (RuntimeException e) {
+            MCEF.INSTANCE.getLogger().error("Failed to get Windows build number", e);
             return null;
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
-        }
-    }
-
-
-    private static String getWmicBuildNumber() {
-        var wmicCmdArray = new String[]{"wmic", "os", "get", "BuildNumber", "/value"};
-
-        Process process = null;
-        try {
-            process = new ProcessBuilder(wmicCmdArray).redirectErrorStream(true).start();
-            try (var source = Okio.buffer(Okio.source(process.getInputStream()))) {
-                String result = source.readUtf8().trim();
-
-                int exitCode = process.waitFor();
-                if (exitCode != 0) {
-                    MCEF.INSTANCE.getLogger().error("wmic command exit code: {}", exitCode);
-                }
-
-                if (result.isEmpty()) {
-                    result = null;
-                } else {
-                    result = result.substring("BuildNumber=".length());
-                }
-
-                return result;
-            }
-        } catch (IOException | InterruptedException e) {
-            MCEF.INSTANCE.getLogger().error("Failed to execute wmic command", e);
-            return null;
-        } finally {
-            if (process != null) {
-                process.destroy();
-            }
         }
     }
 
