@@ -30,12 +30,14 @@ import net.minecraft.client.input.InputQuirks;
 import net.minecraft.resources.Identifier;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefBrowserOsr;
+import org.cef.browser.CefRequestContext;
 import org.cef.callback.CefDragData;
 import org.cef.event.CefKeyEvent;
 import org.cef.event.CefMouseEvent;
 import org.cef.event.CefMouseWheelEvent;
 import org.cef.handler.CefAcceleratedPaintInfo;
 import org.cef.misc.CefCursorType;
+import org.jspecify.annotations.Nullable;
 import org.lwjgl.system.MemoryUtil;
 
 import java.awt.*;
@@ -90,7 +92,18 @@ public class MCEFBrowser extends CefBrowserOsr {
     private final boolean isWindows = MCEFPlatform.getPlatform().isWindows();
 
     public MCEFBrowser(MCEFClient client, String url, boolean transparent, MCEFBrowserSettings browserSettings) {
-        super(client.getHandle(), url, transparent, null, browserSettings);
+        this(client, url, transparent, browserSettings, null);
+    }
+
+    /**
+     * @param requestContext The request context to load the browser in, or null for the global one.
+     *                       A context created with {@link CefRequestContext#createContext} keeps its
+     *                       cookies and storage in memory, which is how a private browsing session is
+     *                       made.
+     */
+    public MCEFBrowser(MCEFClient client, String url, boolean transparent, MCEFBrowserSettings browserSettings,
+                       @Nullable CefRequestContext requestContext) {
+        super(client.getHandle(), url, transparent, requestContext, browserSettings);
         renderer = new MCEFRenderer(transparent);
         cursorChangeListener = (cefCursorID) -> setCursor(CefCursorType.fromId(cefCursorID));
 

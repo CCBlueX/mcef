@@ -23,6 +23,7 @@ package net.ccbluex.liquidbounce.mcef;
 
 import net.ccbluex.liquidbounce.mcef.cef.*;
 import net.minecraft.client.Minecraft;
+import org.cef.browser.CefRequestContext;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -128,12 +129,25 @@ public enum MCEF {
      * @return the {@link MCEFBrowser} web browser instance
      */
     public MCEFBrowser createBrowser(String url, boolean transparent, @Nullable MCEFBrowserSettings browserSettings) {
+        return createBrowser(url, transparent, browserSettings, null);
+    }
+
+    /**
+     * Will assert that MCEF has been initialized; throws a {@link RuntimeException} if not.
+     * Creates a new Chromium web browser in the given request context.
+     * @param requestContext the request context to load the browser in, or null for the global one.
+     *                       A context from {@link CefRequestContext#createContext} keeps its cookies
+     *                       and storage in memory only, which is how a private session is made.
+     * @return the {@link MCEFBrowser} web browser instance
+     */
+    public MCEFBrowser createBrowser(String url, boolean transparent, @Nullable MCEFBrowserSettings browserSettings,
+                                     @Nullable CefRequestContext requestContext) {
         assertInitialized();
         assert client != null;
         if (browserSettings == null) {
             browserSettings = new MCEFBrowserSettings(60, false);
         }
-        MCEFBrowser browser = new MCEFBrowser(client, url, transparent, browserSettings);
+        MCEFBrowser browser = new MCEFBrowser(client, url, transparent, browserSettings, requestContext);
         browser.setCloseAllowed();
         browser.createImmediately();
         return browser;
@@ -147,7 +161,19 @@ public enum MCEF {
      */
     public MCEFBrowser createBrowser(String url, boolean transparent, int width, int height,
                                      @Nullable MCEFBrowserSettings browserSettings) {
-        var browser = createBrowser(url, transparent, browserSettings);
+        return createBrowser(url, transparent, width, height, browserSettings, null);
+    }
+
+    /**
+     * Will assert that MCEF has been initialized; throws a {@link RuntimeException} if not.
+     * Creates a new Chromium web browser with some starting URL, width, and height, in the given
+     * request context.
+     * @return the {@link MCEFBrowser} web browser instance
+     */
+    public MCEFBrowser createBrowser(String url, boolean transparent, int width, int height,
+                                     @Nullable MCEFBrowserSettings browserSettings,
+                                     @Nullable CefRequestContext requestContext) {
+        var browser = createBrowser(url, transparent, browserSettings, requestContext);
         browser.resize(width, height);
         return browser;
     }
