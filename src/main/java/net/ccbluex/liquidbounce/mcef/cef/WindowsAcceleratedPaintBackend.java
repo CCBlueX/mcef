@@ -87,7 +87,6 @@ final class WindowsAcceleratedPaintBackend implements AcceleratedPaintBackend {
                 memoryObject,
                 0
         );
-        glFinish();
         glDeleteMemoryObjectsEXT(memoryObject);
 
         error = glGetError();
