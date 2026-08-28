@@ -23,6 +23,7 @@ package net.ccbluex.liquidbounce.mcef.cef;
 
 import com.mojang.blaze3d.GpuFormat;
 import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.opengl.GlStateManager;
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -36,6 +37,7 @@ import net.minecraft.resources.Identifier;
 import org.cef.handler.CefAcceleratedPaintInfo;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
+import org.lwjgl.system.MemoryUtil;
 
 import java.awt.*;
 import java.io.Closeable;
@@ -286,17 +288,22 @@ public class MCEFRenderer implements Closeable {
         }
 
         var commandEncoder = RenderSystem.getDevice().createCommandEncoder();
-        var source = commandEncoder.transientMemory()
-                .uploadStaging(fixedByteBuffer(buffer, (long) sourceWidth * sourceHeight * GpuFormat.RGBA8_UNORM.blockSize()),
-                        1L, GpuBuffer.USAGE_COPY_SRC);
+        var upload = prepareDirtyUpload(buffer, sourceWidth, sourceHeight, dirtyRects);
+        GpuBufferSlice source;
+        try {
+            source = commandEncoder.transientMemory()
+                    .uploadStaging(upload.buffer(), 1L, GpuBuffer.USAGE_COPY_SRC);
+        } finally {
+            upload.close();
+        }
 
         for (var dirtyRect : dirtyRects) {
             commandEncoder.copyBufferToTexture(
                     source,
-                    dirtyRect.x,
-                    dirtyRect.y,
-                    sourceWidth,
-                    sourceHeight,
+                    upload.sourceX(dirtyRect),
+                    upload.sourceY(dirtyRect),
+                    upload.width(),
+                    upload.height(),
                     texture,
                     destOffsetX + dirtyRect.x,
                     destOffsetY + dirtyRect.y,
@@ -310,6 +317,68 @@ public class MCEFRenderer implements Closeable {
         isAccelerated = false;
         isBGRA = true;
         unpainted = false;
+    }
+
+    /**
+     * Uses the original CEF buffer for large updates. For sparse updates, pack the dirty bounding
+     * box row-by-row so staging upload bandwidth scales with the changed area.
+     */
+    private static DirtyUpload prepareDirtyUpload(
+            ByteBuffer buffer,
+            int sourceWidth,
+            int sourceHeight,
+            Rectangle[] dirtyRects
+    ) {
+        var fullLength = (long) sourceWidth * sourceHeight * GpuFormat.RGBA8_UNORM.blockSize();
+        if (dirtyRects.length == 0) {
+            return new DirtyUpload(fixedByteBuffer(buffer, fullLength), 0, 0, sourceWidth, sourceHeight, false);
+        }
+
+        var bounds = new Rectangle(dirtyRects[0]);
+        for (int i = 1; i < dirtyRects.length; i++) {
+            bounds.add(dirtyRects[i]);
+        }
+
+        long boundsBytes = (long) bounds.width * bounds.height * GpuFormat.RGBA8_UNORM.blockSize();
+        if (bounds.width <= 0 || bounds.height <= 0 || boundsBytes * 2L >= fullLength) {
+            return new DirtyUpload(fixedByteBuffer(buffer, fullLength), 0, 0, sourceWidth, sourceHeight, false);
+        }
+
+        var packed = MemoryUtil.memAlloc(Math.toIntExact(boundsBytes));
+        var sourceAddress = MemoryUtil.memAddress(buffer);
+        var packedAddress = MemoryUtil.memAddress(packed);
+        int rowBytes = bounds.width * GpuFormat.RGBA8_UNORM.blockSize();
+        for (int row = 0; row < bounds.height; row++) {
+            long sourceOffset = ((long) (bounds.y + row) * sourceWidth + bounds.x)
+                    * GpuFormat.RGBA8_UNORM.blockSize();
+            MemoryUtil.memCopy(sourceAddress + sourceOffset, packedAddress + (long) row * rowBytes, rowBytes);
+        }
+        packed.position(0).limit(Math.toIntExact(boundsBytes));
+        return new DirtyUpload(packed, bounds.x, bounds.y, bounds.width, bounds.height, true);
+    }
+
+    private record DirtyUpload(
+            ByteBuffer buffer,
+            int offsetX,
+            int offsetY,
+            int width,
+            int height,
+            boolean allocated
+    ) implements AutoCloseable {
+        int sourceX(Rectangle rect) {
+            return allocated ? rect.x - offsetX : rect.x;
+        }
+
+        int sourceY(Rectangle rect) {
+            return allocated ? rect.y - offsetY : rect.y;
+        }
+
+        @Override
+        public void close() {
+            if (allocated) {
+                MemoryUtil.memFree(buffer);
+            }
+        }
     }
 
     protected void onPaint(
