@@ -201,7 +201,7 @@ public class MCEFBrowser extends CefBrowserOsr {
                 }
             }
         } else {
-            if (!renderer.isTextureReady()) return;
+            if (!renderer.isTextureReady() || popupSize == null) return;
             int start = buffer.capacity();
             int end = 0;
             for (Rectangle dirtyRect : dirtyRects) {
@@ -213,7 +213,8 @@ public class MCEFBrowser extends CefBrowserOsr {
                 int rectStart = (dirtyRect.x + ((dirtyRect.y) * popupSize.width)) << 2;
                 if (rectStart < start) start = rectStart;
 
-                int rectEnd = ((dirtyRect.x + dirtyRect.width) + ((dirtyRect.y + popupSize.height) * dirtyRect.width)) << 2;
+                int rectEnd = (((dirtyRect.y + dirtyRect.height - 1) * popupSize.width)
+                        + dirtyRect.x + dirtyRect.width) << 2;
                 if (rectEnd > end) end = rectEnd;
             }
             if (start < 0) start = 0;
