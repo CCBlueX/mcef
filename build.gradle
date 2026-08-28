@@ -27,15 +27,20 @@ static def getCheckedOutGitCommitHash(Project mcefParent) {
     }
 }
 
+final jcefCommitFile = layout.buildDirectory.file "jcef.commit"
+
 tasks.register('cloneJcef', Exec) {
     commandLine 'git', 'submodule', 'update', '--init', '--recursive', 'java-cef'
 }
 
 tasks.register('generateJcefCommitFile') {
+    outputs.file jcefCommitFile
     doLast {
         def commitHash = getCheckedOutGitCommitHash(project)
         if (!commitHash.isEmpty()) {
-            file("$buildDir/jcef.commit").text = commitHash
+            final output = jcefCommitFile.get().asFile
+            output.parentFile.mkdirs()
+            output.text = commitHash
         } else {
             throw new GradleException("Unable to determine JCEF commit hash.")
         }
@@ -115,7 +120,7 @@ jar {
     from("LICENSE") {
         rename { "${it}_${project.base.archivesName.get()}"}
     }
-    from("$buildDir/jcef.commit")
+    from jcefCommitFile
     from sourceSets.jcef.output
 }
 
